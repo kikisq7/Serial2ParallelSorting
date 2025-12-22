@@ -74,7 +74,7 @@ def print_array(arr: List[int]) -> None:
 
 # Driver method
 if __name__ == "__main__":
-    arr = [12, 11, 13, 5, 6, 7, 8, 1, 9, 2, 4, 3]
+    arr = [12, 11, 13, 5, 6, 7, 8, 1, 9, 2, 4, 3, 400]
     
     print("Original array: ", end="")
     print_array(arr)

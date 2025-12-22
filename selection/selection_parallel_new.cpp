@@ -63,13 +63,16 @@ void parallelSelectionSort(vector<int>& arr, int start, int end) {
     parallelSelectionSort(arr, start + 1, end);
 }
 
+#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
 void printArray(const vector<int>& arr) {
     for (int val : arr) {
         cout << val << " ";
     }
     cout << endl;
 }
+#endif
 
+#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
 int main() {
     vector<int> arr = {64, 25, 12, 22, 11, 8, 5, 3, 1, 9, 7, 4};
     
@@ -83,3 +86,4 @@ int main() {
     
     return 0;
 }
+#endif

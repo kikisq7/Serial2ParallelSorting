@@ -66,8 +66,10 @@ function parallel_mergesort(arr::Vector)
     return merge(left_sorted, right_sorted)
 end
 
-# Example usage
-arr = [7, 6, 5, 9, 8, 4, 3, 1, 2, 0, 12, 11, 10, 15, 14, 13]
-println("Original array: ", arr)
-sorted_arr = parallel_mergesort(arr)
-println("Sorted array: ", sorted_arr)
+if abspath(PROGRAM_FILE) == @__FILE__
+    # Example usage
+    arr = [7, 6, 5, 9, 8, 4, 3, 1, 2, 0, 12, 11, 10, 15, 14, 13]
+    println("Original array: ", arr)
+    sorted_arr = parallel_mergesort(arr)
+    println("Sorted array: ", sorted_arr)
+end

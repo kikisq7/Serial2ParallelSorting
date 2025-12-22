@@ -71,8 +71,10 @@ function parallel_insertion_sort!(arr::Vector, start_idx::Int = 1, end_idx::Int 
     return arr
 end
 
-# Example usage
-my_array = [5, 2, 8, 1, 9, 4, 7, 3, 6, 12, 11, 10]
-println("Original array: ", my_array)
-parallel_insertion_sort!(my_array)
-println("Sorted array: ", my_array)
+if abspath(PROGRAM_FILE) == @__FILE__
+    # Example usage
+    my_array = [5, 2, 8, 1, 9, 4, 7, 3, 6, 12, 11, 10]
+    println("Original array: ", my_array)
+    parallel_insertion_sort!(my_array)
+    println("Sorted array: ", my_array)
+end

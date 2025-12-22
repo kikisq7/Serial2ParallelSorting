@@ -56,13 +56,15 @@ function parallel_selection_sort!(arr::Vector, start_idx::Int = 1, end_idx::Int 
     return arr
 end
 
-# Example usage
-my_array = [64, 25, 12, 22, 11, 8, 5, 3, 1, 9, 7, 4]
-println("Original array: ", my_array)
-parallel_selection_sort!(my_array)
-println("Sorted array: ", my_array)
+if abspath(PROGRAM_FILE) == @__FILE__
+    # Example usage
+    my_array = [64, 25, 12, 22, 11, 8, 5, 3, 1, 9, 7, 4]
+    println("Original array: ", my_array)
+    parallel_selection_sort!(my_array)
+    println("Sorted array: ", my_array)
 
-my_array_2 = [5, 2, 8, 1, 9, 4, 7, 3, 6]
-println("Original array: ", my_array_2)
-parallel_selection_sort!(my_array_2)
-println("Sorted array: ", my_array_2)
+    my_array_2 = [5, 2, 8, 1, 9, 4, 7, 3, 6]
+    println("Original array: ", my_array_2)
+    parallel_selection_sort!(my_array_2)
+    println("Sorted array: ", my_array_2)
+end

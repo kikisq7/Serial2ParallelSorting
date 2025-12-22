@@ -56,3 +56,9 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# test datasets
+test_data/
+
+# results
+results/

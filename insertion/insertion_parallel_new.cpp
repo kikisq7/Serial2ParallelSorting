@@ -1,4 +1,5 @@
 // C++ program for parallel implementation of Insertion Sort
+
 #include <iostream>
 #include <vector>
 #include <thread>
@@ -63,13 +64,16 @@ void parallelInsertionSort(vector<int>& arr, int start, int end) {
 }
 
 /* A utility function to print array of size n */
+#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
 void printArray(const vector<int>& arr) {
     for (int val : arr)
         cout << val << " ";
     cout << endl;
 }
+#endif
 
 // Driver method
+#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
 int main() {
     vector<int> arr = {12, 11, 13, 5, 6, 7, 8, 1, 9, 2, 4, 3};
     
@@ -83,3 +87,4 @@ int main() {
     
     return 0;
 }
+#endif

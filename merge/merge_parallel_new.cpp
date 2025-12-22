@@ -88,6 +88,7 @@ void parallelMergeSort(vector<int>& arr, int left, int right) {
 }
 
 // Driver code
+#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
 int main() {
     vector<int> arr = {38, 27, 43, 10, 15, 8, 22, 5, 12, 3, 18, 7};
     
@@ -105,3 +106,4 @@ int main() {
     
     return 0;
 }
+#endif
