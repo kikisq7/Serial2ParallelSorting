@@ -1,30 +1,49 @@
-using Base.Threads
+using Polyester
 
 function phase!(arr::Vector{T}, start::Int) where {T}
     n = length(arr)
     if n < 2
         return false
     end
+    
     swapped = false
-
-    # Snapshot to avoid read/write conflicts
-    snap = copy(arr)
-
-    @threads for k in 0:((n - 1 - start) ÷ 2)
-        i = start + 2k
-        if i + 1 <= n && snap[i] > snap[i + 1]
-            # Apply swap after comparisons; thread-safe writes to distinct indices
-            arr[i], arr[i + 1] = arr[i + 1], arr[i]
+    range_max = (n - 1 - start) ÷ 2
+    
+    # Only parallelize if we have enough work to justify overhead
+    # Each task should handle at least ~50 comparisons to amortize overhead
+    min_work_per_task = 50
+    if range_max > min_work_per_task * 4  # Need at least 4 tasks worth of work
+        # Chunk the work: each @batch iteration handles multiple comparisons
+        num_tasks = min(Threads.nthreads() * 4, range_max ÷ min_work_per_task)
+        num_tasks = max(1, num_tasks)  # At least 1 task
+        chunk_size = max(1, range_max ÷ num_tasks)
+        
+        local_swapped = Ref(false)
+        @batch for task_id in 0:(num_tasks-1)
+            task_start = task_id * chunk_size
+            task_end = min((task_id + 1) * chunk_size - 1, range_max)
+            
+            for k in task_start:task_end
+                i = start + 2*k
+                if i + 1 <= n && arr[i] > arr[i + 1]
+                    # Apply swap - thread-safe since each task handles distinct indices
+                    arr[i], arr[i + 1] = arr[i + 1], arr[i]
+                    local_swapped[] = true
+                end
+            end
+        end
+        swapped = local_swapped[]
+    else
+        # Sequential for small ranges to avoid overhead
+        for k in 0:range_max
+            i = start + 2*k
+            if i + 1 <= n && arr[i] > arr[i + 1]
+                arr[i], arr[i + 1] = arr[i + 1], arr[i]
+                swapped = true
+            end
         end
     end
-
-    # Detect if any swap occurred
-    for i in start:2:(n - 1)
-        if arr[i] != snap[i]
-            swapped = true
-            break
-        end
-    end
+    
     return swapped
 end
 

@@ -138,9 +138,17 @@ void selectionSort_serial(std::vector<int>& arr) {
 static const int ITER = 5;
 static const int WARMUP = 1;
 
-static vector<int> read_data(int n) {
+static vector<int> read_data(int n, int iteration = -1) {
     vector<string> candidates;
-    string fname = "data_" + to_string(n) + ".txt";
+    string fname;
+    if (iteration >= 0) {
+        // Try numbered dataset file
+        fname = "data_" + to_string(n) + "_" + to_string(iteration + 1) + ".txt";
+    } else {
+        // Default file
+        fname = "data_" + to_string(n) + ".txt";
+    }
+    
     candidates.push_back(string("test_data/") + fname);
     candidates.push_back(string("../test_data/") + fname);
     candidates.push_back(string("../../test_data/") + fname);
@@ -167,7 +175,9 @@ static vector<int> read_data(int n) {
     }
 
     if (!in.is_open()) {
-        cerr << "Error: Could not open any test data file for size " << n << ". Tried:\n";
+        cerr << "Error: Could not open any test data file for size " << n;
+        if (iteration >= 0) cerr << " iteration " << (iteration + 1);
+        cerr << ". Tried:\n";
         for (const auto& p : candidates) cerr << "  " << p << "\n";
         exit(1);
     }
@@ -204,149 +214,78 @@ static Stat summarize(const vector<long long>& v) {
     return {mean, median, stdev, mn, mx};
 }
 
+// Helper function to benchmark with different datasets per iteration
+template <typename F>
+static Stat bench_with_iterations(F&& bench_func, int n) {
+    vector<long long> times;
+    
+    // Warmup with first dataset
+    auto warmup_data = read_data(n, 0);
+    for (int i = 0; i < WARMUP; ++i) {
+        auto tmp = warmup_data;
+        bench_func(tmp);
+    }
+    
+    // Run iterations with different datasets
+    for (int iteration = 0; iteration < ITER; ++iteration) {
+        auto data = read_data(n, iteration);
+        auto tmp = data;
+        times.push_back(time_once([&]{ bench_func(tmp); }));
+    }
+    
+    return summarize(times);
+}
+
 // Serial benchmark functions
-static Stat bench_bubble_serial(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { auto tmp = data; bubble_sort_serial(tmp); }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ bubble_sort_serial(tmp); }));
-    }
-    return summarize(times);
+static Stat bench_bubble_serial(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { bubble_sort_serial(tmp); }, n);
 }
 
-static Stat bench_insertion_serial(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { 
-        auto tmp = data; 
-        insertionSort_serial(tmp); 
-    }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ insertionSort_serial(tmp); }));
-    }
-    return summarize(times);
+static Stat bench_insertion_serial(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { insertionSort_serial(tmp); }, n);
 }
 
-static Stat bench_merge_serial(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { 
-        auto tmp = data; 
-        mergeSort_serial(tmp, 0, (int)tmp.size()-1); 
-    }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ mergeSort_serial(tmp, 0, (int)tmp.size()-1); }));
-    }
-    return summarize(times);
+static Stat bench_merge_serial(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { mergeSort_serial(tmp, 0, (int)tmp.size()-1); }, n);
 }
 
-static Stat bench_quick_serial(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { 
-        auto tmp = data; 
-        quicksort_serial(tmp, 0, (int)tmp.size()-1); 
-    }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ quicksort_serial(tmp, 0, (int)tmp.size()-1); }));
-    }
-    return summarize(times);
+static Stat bench_quick_serial(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { quicksort_serial(tmp, 0, (int)tmp.size()-1); }, n);
 }
 
-static Stat bench_selection_serial(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { auto tmp = data; selectionSort_serial(tmp); }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ selectionSort_serial(tmp); }));
-    }
-    return summarize(times);
+static Stat bench_selection_serial(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { selectionSort_serial(tmp); }, n);
 }
 
-static Stat bench_builtin_serial(const vector<int>& data) {
+static Stat bench_builtin_serial(int n) {
     omp_set_num_threads(1);
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { auto tmp = data; sort(tmp.begin(), tmp.end()); }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ sort(tmp.begin(), tmp.end()); }));
-    }
-    return summarize(times);
+    return bench_with_iterations([](vector<int>& tmp) { sort(tmp.begin(), tmp.end()); }, n);
 }
 
-static Stat bench_builtin_parallel(const vector<int>& data) {
+static Stat bench_builtin_parallel(int n) {
     omp_set_num_threads(64);
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { auto tmp = data; sort(std::execution::par_unseq, tmp.begin(), tmp.end()); }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ sort(std::execution::par_unseq, tmp.begin(), tmp.end()); }));
-    }
-    return summarize(times);
+    return bench_with_iterations([](vector<int>& tmp) { sort(std::execution::par_unseq, tmp.begin(), tmp.end()); }, n);
 }
 
 // Parallel benchmark functions
-static Stat bench_bubble(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { auto tmp = data; bubble_sort_parallel(tmp); }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ bubble_sort_parallel(tmp); }));
-    }
-    return summarize(times);
+static Stat bench_bubble(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { bubble_sort_parallel(tmp); }, n);
 }
 
-static Stat bench_insertion(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { 
-        auto tmp = data; 
-        parallelInsertionSort(tmp, 0, (int)tmp.size()-1); 
-    }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ parallelInsertionSort(tmp, 0, (int)tmp.size()-1); }));
-    }
-    return summarize(times);
+static Stat bench_insertion(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { parallelInsertionSort(tmp, 0, (int)tmp.size()-1); }, n);
 }
 
-static Stat bench_merge(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { 
-        auto tmp = data; 
-        parallelMergeSort(tmp, 0, (int)tmp.size()-1); 
-    }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ parallelMergeSort(tmp, 0, (int)tmp.size()-1); }));
-    }
-    return summarize(times);
+static Stat bench_merge(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { parallelMergeSort(tmp, 0, (int)tmp.size()-1); }, n);
 }
 
-static Stat bench_quick(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { 
-        auto tmp = data; 
-        quicksort_parallel_entry(tmp); 
-    }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ quicksort_parallel_entry(tmp); }));
-    }
-    return summarize(times);
+static Stat bench_quick(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { quicksort_parallel_entry(tmp); }, n);
 }
 
-static Stat bench_selection(const vector<int>& data) {
-    vector<long long> times;
-    for (int i = 0; i < WARMUP; ++i) { 
-        auto tmp = data; 
-        parallelSelectionSort(tmp, 0, (int)tmp.size()-1); 
-    }
-    for (int i = 0; i < ITER; ++i) {
-        auto tmp = data;
-        times.push_back(time_once([&]{ parallelSelectionSort(tmp, 0, (int)tmp.size()-1); }));
-    }
-    return summarize(times);
+static Stat bench_selection(int n) {
+    return bench_with_iterations([](vector<int>& tmp) { parallelSelectionSort(tmp, 0, (int)tmp.size()-1); }, n);
 }
 
 static void print_comparison(const string& parallel_name, const Stat& parallel_stat, 
@@ -373,17 +312,16 @@ int main() {
     vector<int> sizes = {10000};
     for (int n : sizes) {
         cout << "\n--- Size: " << n << " ---\n";
-        auto data = read_data(n);
 
         cout << "Benchmarking builtin_sort_serial...\n";
-        auto builtin_serial = bench_builtin_serial(data);
+        auto builtin_serial = bench_builtin_serial(n);
         cout << "Benchmarking builtin_sort_parallel...\n";
-        auto builtin_parallel = bench_builtin_parallel(data);
+        auto builtin_parallel = bench_builtin_parallel(n);
 
         struct AlgoPair {
             string name;
-            function<Stat(const vector<int>&)> parallel_bench;
-            function<Stat(const vector<int>&)> serial_bench;
+            function<Stat(int)> parallel_bench;
+            function<Stat(int)> serial_bench;
         };
 
         vector<AlgoPair> algos = {
@@ -396,9 +334,9 @@ int main() {
 
         for (const auto& algo : algos) {
             cout << "Benchmarking " << algo.name << "_parallel...\n";
-            auto parallel_stat = algo.parallel_bench(data);
+            auto parallel_stat = algo.parallel_bench(n);
             cout << "Benchmarking " << algo.name << "_serial...\n";
-            auto serial_stat = algo.serial_bench(data);
+            auto serial_stat = algo.serial_bench(n);
 
             cout << "\nComparing " << algo.name << "_parallel vs " << algo.name << "_serial vs builtin_sort:\n";
             print_comparison(algo.name + "_parallel", parallel_stat, algo.name + "_serial", serial_stat);

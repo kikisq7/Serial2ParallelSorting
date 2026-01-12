@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 
-using Base.Threads
+using Polyester
 
 function merge(left::Vector, right::Vector)
     result = eltype(left)[]
@@ -29,6 +29,22 @@ function merge(left::Vector, right::Vector)
     return result
 end
 
+function sequential_mergesort(arr::Vector)
+    n = length(arr)
+    if n <= 1
+        return arr
+    end
+    
+    mid = n ÷ 2
+    left = arr[1:mid]
+    right = arr[mid+1:n]
+    
+    left_sorted = sequential_mergesort(left)
+    right_sorted = sequential_mergesort(right)
+    
+    return merge(left_sorted, right_sorted)
+end
+
 function parallel_mergesort(arr::Vector)
     n = length(arr)
     if n <= 1
@@ -36,34 +52,48 @@ function parallel_mergesort(arr::Vector)
     end
     
     # For small arrays, use sequential merge sort
-    if n < 100
-        mid = n ÷ 2
-        left = arr[1:mid]
-        right = arr[mid+1:n]
-        
-        left_sorted = parallel_mergesort(left)
-        right_sorted = parallel_mergesort(right)
-        
-        return merge(left_sorted, right_sorted)
+    if n < 200
+        return sequential_mergesort(arr)
     end
-
-    mid = n ÷ 2
-    left = arr[1:mid]
-    right = arr[mid+1:n]
-
-    # Sort both halves in parallel
-    left_sorted = Vector{eltype(arr)}()
-    right_sorted = Vector{eltype(arr)}()
     
-    @threads for i in 1:2
-        if i == 1
-            left_sorted = parallel_mergesort(left)
-        else
-            right_sorted = parallel_mergesort(right)
-        end
+    # Bottom-up approach: divide into chunks and sort all in parallel
+    # Adaptive chunk size: aim for 3-8 chunks depending on array size
+    target_chunks = min(8, max(3, n ÷ 250))  # 3-8 chunks, roughly
+    chunk_size = max(150, n ÷ target_chunks)
+    num_chunks = (n + chunk_size - 1) ÷ chunk_size  # Ceiling division
+    
+    # Create chunks
+    chunks = Vector{Vector{eltype(arr)}}(undef, num_chunks)
+    for i in 1:num_chunks
+        start_idx = (i - 1) * chunk_size + 1
+        end_idx = min(i * chunk_size, n)
+        chunks[i] = arr[start_idx:end_idx]
     end
-
-    return merge(left_sorted, right_sorted)
+    
+    # Sort all chunks in parallel using Polyester
+    @batch for i in 1:num_chunks
+        chunks[i] = sequential_mergesort(chunks[i])
+    end
+    
+    # Merge chunks sequentially
+    while length(chunks) > 1
+        merged_chunks = Vector{Vector{eltype(arr)}}()
+        i = 1
+        while i <= length(chunks)
+            if i + 1 <= length(chunks)
+                # Merge two adjacent chunks
+                push!(merged_chunks, merge(chunks[i], chunks[i+1]))
+                i += 2
+            else
+                # Last chunk if odd number
+                push!(merged_chunks, chunks[i])
+                i += 1
+            end
+        end
+        chunks = merged_chunks
+    end
+    
+    return chunks[1]
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

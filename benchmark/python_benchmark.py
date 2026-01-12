@@ -69,7 +69,16 @@ WARMUP_ITERATIONS = 1
 NS_PER_SEC = 1_000_000_000
 MS_PER_NS = 1_000_000
 
-def load_test_data(size: int) -> List[int]:
+def load_test_data(size: int, iteration: int = None) -> List[int]:
+    """Load test data, optionally using different file for each iteration"""
+    if iteration is not None:
+        # Use numbered dataset file for this iteration
+        data_path = os.path.join(REPO_ROOT, "test_data", f"data_{size}_{iteration + 1}.txt")
+        if os.path.exists(data_path):
+            with open(data_path, 'r') as f:
+                return [int(x) for x in f.read().split()]
+    
+    # Fallback to default file
     data_path = os.path.join(REPO_ROOT, "test_data", f"data_{size}.txt")
     with open(data_path, 'r') as f:
         return [int(x) for x in f.read().split()]
@@ -89,7 +98,7 @@ def _invoke_algorithm(algorithm_name: str, algorithm_func: Callable, data: List[
         algorithm_func(test_data)
 
 
-def benchmark_algorithm(algorithm_name: str, algorithm_func: Optional[Callable], data: List[int]) -> Dict[str, Any]:
+def benchmark_algorithm(algorithm_name: str, algorithm_func: Optional[Callable], size: int) -> Dict[str, Any]:
     if algorithm_func is None:
         return {
             "error": f"Algorithm {algorithm_name} not available",
@@ -98,11 +107,15 @@ def benchmark_algorithm(algorithm_name: str, algorithm_func: Optional[Callable],
         }
     
     try:
+        # Warmup with first dataset
+        warmup_data = load_test_data(size, 0)
         for _ in range(WARMUP_ITERATIONS):
-            _invoke_algorithm(algorithm_name, algorithm_func, data)
+            _invoke_algorithm(algorithm_name, algorithm_func, warmup_data)
         
         times = []
-        for _ in range(BENCHMARK_ITERATIONS):
+        for iteration in range(BENCHMARK_ITERATIONS):
+            # Load different dataset for each iteration
+            data = load_test_data(size, iteration)
             start_time = time.perf_counter() * NS_PER_SEC
             _invoke_algorithm(algorithm_name, algorithm_func, data)
             end_time = time.perf_counter() * NS_PER_SEC
@@ -171,17 +184,16 @@ def main() -> None:
     
     for size in test_sizes:
         print(f"\n--- Size: {size} ---")
-        data = load_test_data(size)
         
         print("Benchmarking builtin_sort...")
-        builtin_result = benchmark_algorithm("builtin_sort", sorted, data)
+        builtin_result = benchmark_algorithm("builtin_sort", sorted, size)
         
         for parallel_name, parallel_func, serial_name, serial_func in sorting_algorithms:
             print(f"Benchmarking {parallel_name}...")
-            parallel_result = benchmark_algorithm(parallel_name, parallel_func, data)
+            parallel_result = benchmark_algorithm(parallel_name, parallel_func, size)
             
             print(f"Benchmarking {serial_name}...")
-            serial_result = benchmark_algorithm(serial_name, serial_func, data)
+            serial_result = benchmark_algorithm(serial_name, serial_func, size)
             
             print(f"\nComparing {parallel_name} vs {serial_name} vs builtin_sort:")
             _compare_results(parallel_name, parallel_result, serial_name, serial_result)

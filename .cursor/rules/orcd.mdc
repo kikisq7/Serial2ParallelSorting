@@ -1,0 +1,6 @@
+---
+description: ORCD file movement debugging problems when moving folders
+alwaysApply: false
+---
+
+This project will be run on ORCD https://orcd-docs.mit.edu/filesystems-file-transfer/transferring-files/. /test_data and /results should not be moved to orcd, just the codefiles and benchmarking files.

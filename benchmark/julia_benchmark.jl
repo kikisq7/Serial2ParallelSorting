@@ -20,7 +20,17 @@ const TEST_SIZES = [10^4]
 const ITER = 3
 const WARMUP = 1
 
-function read_data(n::Int)
+function read_data(n::Int, iteration::Union{Int, Nothing} = nothing)
+    if iteration !== nothing
+        # Try numbered dataset file first
+        path = joinpath(@__DIR__, "..", "test_data", "data_$(n)_$(iteration + 1).txt")
+        if isfile(path)
+            open(path, "r") do io
+                return parse.(Int, split(readline(io)))
+            end
+        end
+    end
+    # Fallback to default file
     path = joinpath(@__DIR__, "..", "test_data", "data_$(n).txt")
     open(path, "r") do io
         return parse.(Int, split(readline(io)))
@@ -33,11 +43,13 @@ function time_once(f)
     return time_ns() - t0
 end
 
-function bench_algo(name::String, f::Function, data::Vector{Int}; inplace::Bool=false)
+function bench_algo(name::String, f::Function, size::Int; inplace::Bool=false)
     times = Int[]
 
+    # Warmup with first dataset
+    warmup_data = read_data(size, 0)
     for _ in 1:WARMUP
-        x = copy(data)
+        x = copy(warmup_data)
         if inplace
             f(x)
         else
@@ -45,7 +57,9 @@ function bench_algo(name::String, f::Function, data::Vector{Int}; inplace::Bool=
         end
     end
 
-    for _ in 1:ITER
+    for iteration in 1:ITER
+        # Load different dataset for each iteration
+        data = read_data(size, iteration - 1)
         x = copy(data)
         dt = time_once(() -> begin
             if inplace
@@ -77,18 +91,17 @@ function main()
 
     for n in TEST_SIZES
         println("\n--- Size: $n ---")
-        data = read_data(n)
 
         println("Benchmarking builtin_sort...")
-        builtin_res = bench_algo("builtin_sort", x->sort(x), data, inplace=false)
+        builtin_res = bench_algo("builtin_sort", x->sort(x), n, inplace=false)
 
         for (parallel_name, parallel_func, serial_name, serial_func, inplace) in algos
             println("Benchmarking $parallel_name...")
             try
-                parallel_res = bench_algo(parallel_name, parallel_func, data, inplace=inplace)
+                parallel_res = bench_algo(parallel_name, parallel_func, n, inplace=inplace)
                 
                 println("Benchmarking $serial_name...")
-                serial_res = bench_algo(serial_name, serial_func, data, inplace=inplace)
+                serial_res = bench_algo(serial_name, serial_func, n, inplace=inplace)
                 
                 parallel_vs_serial = serial_res.mean_ns / parallel_res.mean_ns
                 parallel_vs_serial_text = parallel_vs_serial > 1 ? "(parallel faster)" : "(serial faster)"
