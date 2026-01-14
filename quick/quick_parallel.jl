@@ -1,4 +1,5 @@
 using Polyester
+using Base.Threads
 
 function quicksort_seq(arr)
     if length(arr) <= 1
@@ -15,23 +16,15 @@ function quicksort_parallel(arr::Vector{T}; depth::Int=3, cutoff::Int=1_000) whe
         return quicksort_seq(arr)
     end
     pivot = arr[end]
-    left = [x for x in arr[1:end-1] if x <= pivot]
-    right = [x for x in arr[1:end-1] if x > pivot]
+    left = T[x for x in arr[1:end-1] if x <= pivot]
+    right = T[x for x in arr[1:end-1] if x > pivot]
 
-    # Use Ref for thread-safe assignment
-    left_result = Ref{Vector{T}}()
-    right_result = Ref{Vector{T}}()
-
-    # Process both in parallel - use loop variable directly in conditionals
-    @batch for task_num in 1:2
-        if task_num == 1
-            left_result[] = quicksort_parallel(left; depth=depth-1, cutoff=cutoff)
-        else
-            right_result[] = quicksort_parallel(right; depth=depth-1, cutoff=cutoff)
-        end
-    end
+    # Use @spawn for the two recursive calls (appropriate for just 2 tasks)
+    left_task = @spawn quicksort_parallel(left; depth=depth-1, cutoff=cutoff)
+    right_result = quicksort_parallel(right; depth=depth-1, cutoff=cutoff)
+    left_result = fetch(left_task)
     
-    return vcat(left_result[], [pivot], right_result[])
+    return vcat(left_result, [pivot], right_result)
 end
 
 function print_array(arr)
