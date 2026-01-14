@@ -9,23 +9,19 @@ function phase!(arr::Vector{T}, start::Int) where {T}
     
     range_max = (n - 1 - start) ÷ 2
     
-    swapped_flags = zeros(Bool, Threads.nthreads())
+    swapped = false
     
-    # Calculate minbatch: ensure each thread gets enough work to amortize overhead
-    # Recommended range: 20-100 iterations per thread
-    minbatch = max(20, range_max ÷ (Threads.nthreads() * 4))
+    # Calculate minbatch: larger batches reduce atomic write frequency
+    minbatch = max(100, range_max ÷ Threads.nthreads())  # One batch per thread roughly
     
     # Use @batch directly on iteration space - let Polyester handle chunking
     @batch minbatch=minbatch for k in 0:range_max
         i = start + 2*k
         if i + 1 <= n && arr[i] > arr[i + 1]
             arr[i], arr[i + 1] = arr[i + 1], arr[i]
-            swapped_flags[Threads.threadid()] = true
+            @atomic swapped = true
         end
     end
-    
-    # Reduce thread-local flags to single boolean
-    swapped = any(swapped_flags)
     
     return swapped
 end
@@ -60,4 +56,3 @@ if abspath(PROGRAM_FILE) == @__FILE__
     print_array(arr)
     @assert arr == sort(arr)
 end
-
