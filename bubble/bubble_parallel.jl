@@ -10,6 +10,7 @@ function phase!(arr::Vector{T}, start::Int) where {T}
     range_max = (n - 1 - start) ÷ 2
     
     swapped = false
+    lock_obj = ReentrantLock()
     
     # Calculate minbatch: larger batches reduce atomic write frequency
     minbatch = max(100, range_max ÷ Threads.nthreads())  # One batch per thread roughly
@@ -19,7 +20,9 @@ function phase!(arr::Vector{T}, start::Int) where {T}
         i = start + 2*k
         if i + 1 <= n && arr[i] > arr[i + 1]
             arr[i], arr[i + 1] = arr[i + 1], arr[i]
-            @atomic swapped = true
+            lock(lock_obj) do
+                swapped = true
+            end
         end
     end
     
