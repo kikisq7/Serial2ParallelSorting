@@ -1,3 +1,6 @@
+from typing import Any
+
+
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
 
@@ -15,7 +18,7 @@ def _compare_pairs_with_snapshot(args):
     return _compare_pairs(snapshot, indices)
 
 
-def _phase_parallel(arr, start, max_workers):
+def _phase_parallel(arr, start, executor, max_workers):
     n = len(arr)
     if n < 2:
         return False
@@ -26,16 +29,15 @@ def _phase_parallel(arr, start, max_workers):
     if not pair_indices:
         return False
 
-    # Chunk indices for workers
-    num_workers = max_workers if max_workers > 0 else 1
+    num_workers = max_workers
+    
     chunk_size = max(1, (len(pair_indices) + num_workers - 1) // num_workers)
     chunks = [pair_indices[i : i + chunk_size] for i in range(0, len(pair_indices), chunk_size)]
 
     swaps_collected = []
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        results = list(executor.map(_compare_pairs_with_snapshot, zip(repeat(snapshot), chunks)))
-        for res in results:
-            swaps_collected.extend(res)
+    results = list(executor.map(_compare_pairs_with_snapshot, zip(repeat(snapshot), chunks)))
+    for res in results:
+        swaps_collected.extend(res)
 
     if not swaps_collected:
         return False
@@ -53,10 +55,11 @@ def bubble_sort_parallel(arr, max_workers=4):
         return arr
 
     swapped = True
-    while swapped:
-        swapped = False
-        swapped |= _phase_parallel(arr, 0, max_workers)
-        swapped |= _phase_parallel(arr, 1, max_workers)
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        while swapped:
+            swapped = False
+            swapped |= _phase_parallel(arr, 0, executor, max_workers)
+            swapped |= _phase_parallel(arr, 1, executor, max_workers)
     return arr
 
 
