@@ -1,90 +1,62 @@
-// C++ program for parallel implementation of Insertion Sort
-
-#include <iostream>
-#include <vector>
-#include <thread>
-#include <future>
 #include <algorithm>
-using namespace std;
+#include <cstddef>
+#include <iterator>
+#include <vector>
 
-// Parallel insertion sort using divide and conquer approach
-void parallelInsertionSort(vector<int>& arr, int start, int end) {
-    if (start >= end) return;
-    
-    // For small arrays, use sequential insertion sort
-    if (end - start < 100) {
-        for (int i = start + 1; i <= end; ++i) {
-            int key = arr[i];
-            int j = i - 1;
-            
-            while (j >= start && arr[j] > key) {
-                arr[j + 1] = arr[j];
-                j = j - 1;
-            }
-            arr[j + 1] = key;
-        }
+#include "../parallel_utils.hpp"
+
+static void insertion_parallel_segment(std::vector<int>& arr) {
+    const std::size_t n = arr.size();
+    if (n < 2) {
         return;
     }
-    
-    // Divide the array into two halves
-    int mid = start + (end - start) / 2;
-    
-    // Sort both halves in parallel
-    auto future1 = async(launch::async, [&]() {
-        parallelInsertionSort(arr, start, mid);
-    });
-    
-    auto future2 = async(launch::async, [&]() {
-        parallelInsertionSort(arr, mid + 1, end);
-    });
-    
-    // Wait for both halves to complete
-    future1.get();
-    future2.get();
-    
-    // Merge the two sorted halves
-    vector<int> temp(end - start + 1);
-    int i = start, j = mid + 1, k = 0;
-    
-    while (i <= mid && j <= end) {
-        if (arr[i] <= arr[j]) {
-            temp[k++] = arr[i++];
-        } else {
-            temp[k++] = arr[j++];
+
+    std::vector<std::size_t> counts;
+    counts.reserve(std::min<std::size_t>(n, 512U));
+
+    for (std::size_t i = 1; i < n; ++i) {
+        const int key = arr[i];
+        const auto ranges = chunk_ranges(static_cast<std::size_t>(i));
+        counts.assign(ranges.size(), 0);
+
+        parallel_for_chunks(ranges.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t range_idx = begin; range_idx < end; ++range_idx) {
+                std::size_t local = 0;
+                for (std::size_t j = ranges[range_idx].first; j < ranges[range_idx].second; ++j) {
+                    if (arr[j] <= key) {
+                        ++local;
+                    }
+                }
+                counts[range_idx] = local;
+            }
+        });
+
+        std::size_t position = 0;
+        for (std::size_t count : counts) {
+            position += count;
         }
-    }
-    
-    while (i <= mid) temp[k++] = arr[i++];
-    while (j <= end) temp[k++] = arr[j++];
-    
-    // Copy back to original array
-    for (int i = 0; i < k; ++i) {
-        arr[start + i] = temp[i];
+        if (position == i) {
+            continue;
+        }
+
+        std::vector<int> segment(arr.begin() + static_cast<std::ptrdiff_t>(position),
+                                arr.begin() + static_cast<std::ptrdiff_t>(i));
+
+        parallel_for_chunks(segment.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t offset = begin; offset < end; ++offset) {
+                arr[position + offset + 1] = segment[offset];
+            }
+        });
+
+        arr[position] = key;
     }
 }
 
-/* A utility function to print array of size n */
-#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
-void printArray(const vector<int>& arr) {
-    for (int val : arr)
-        cout << val << " ";
-    cout << endl;
+void parallelInsertionSort(std::vector<int>& arr, int left, int right) {
+    if (left >= right) {
+        return;
+    }
+    std::vector<int> segment(arr.begin() + left, arr.begin() + right + 1);
+    insertion_parallel_segment(segment);
+    std::copy(segment.begin(), segment.end(), arr.begin() + left);
 }
-#endif
-
-// Driver method
-#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
-int main() {
-    vector<int> arr = {12, 11, 13, 5, 6, 7, 8, 1, 9, 2, 4, 3};
-    
-    cout << "Original array: ";
-    printArray(arr);
-    
-    parallelInsertionSort(arr, 0, arr.size() - 1);
-    
-    cout << "Sorted array: ";
-    printArray(arr);
-    
-    return 0;
-}
-#endif

@@ -1,72 +1,72 @@
-#include <algorithm>
-#include <iostream>
+#include <utility>
 #include <vector>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
+#include "../parallel_utils.hpp"
 
-static const int CUTOFF = 2000;
-
-int partition(std::vector<int>& a, int low, int high) {
-    int pivot = a[high];
+static int qp_partition(std::vector<int>& arr, int low, int high) {
+    const int pivot = arr[high];
     int i = low - 1;
     for (int j = low; j < high; ++j) {
-        if (a[j] <= pivot) {
+        if (arr[j] < pivot) {
             ++i;
-            std::swap(a[i], a[j]);
+            std::swap(arr[i], arr[j]);
         }
     }
-    std::swap(a[i + 1], a[high]);
+    std::swap(arr[i + 1], arr[high]);
     return i + 1;
 }
 
-void quicksort_parallel(std::vector<int>& a, int low, int high) {
-    if (low >= high) return;
-    int n = high - low + 1;
-    if (n <= CUTOFF) {
-        std::sort(a.begin() + low, a.begin() + high + 1);
+static void parallel_quicksort_range(std::vector<int>& arr, int low, int high) {
+    if (low >= high) {
         return;
     }
+    std::vector<std::pair<int, int>> current{{low, high}};
 
-    int pi = partition(a, low, high);
+    std::vector<int> pivots;
+    std::vector<unsigned char> valid;
+    pivots.reserve(arr.size());
+    valid.reserve(arr.size());
 
-    #pragma omp task shared(a) if (high - low > CUTOFF)
-    quicksort_parallel(a, low, pi - 1);
+    while (!current.empty()) {
+        pivots.resize(current.size(), 0);
+        valid.resize(current.size(), static_cast<unsigned char>(0));
 
-    #pragma omp task shared(a) if (high - low > CUTOFF)
-    quicksort_parallel(a, pi + 1, high);
-}
+        parallel_for_chunks(current.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t idx = begin; idx < end; ++idx) {
+                const auto& range = current[idx];
+                if (range.first < range.second) {
+                    pivots[idx] = qp_partition(arr, range.first, range.second);
+                    valid[idx] = 1;
+                }
+            }
+        });
 
-void quicksort_parallel_entry(std::vector<int>& a) {
-    #pragma omp parallel
-    {
-        #pragma omp single nowait
-        quicksort_parallel(a, 0, static_cast<int>(a.size()) - 1);
+        std::vector<std::pair<int, int>> next_ranges;
+        next_ranges.reserve(current.size() * 2);
+
+        for (std::size_t idx = 0; idx < current.size(); ++idx) {
+            if (valid[idx] == 0) {
+                continue;
+            }
+            const int range_low = current[idx].first;
+            const int range_high = current[idx].second;
+            const int pivot_idx = pivots[idx];
+
+            if (range_low < pivot_idx - 1) {
+                next_ranges.emplace_back(range_low, pivot_idx - 1);
+            }
+            if (pivot_idx + 1 < range_high) {
+                next_ranges.emplace_back(pivot_idx + 1, range_high);
+            }
+        }
+
+        current.swap(next_ranges);
     }
 }
 
-#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
-void print_array(const std::vector<int>& arr) {
-    for (const auto& v : arr) std::cout << v << ' ';
-    std::cout << '\n';
-}
-#endif
-
-#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
-int main() {
-    std::vector<int> data{10, 7, 8, 9, 1, 5, 12, 4, 6, 3, 11, 2};
-    std::cout << "Original array: ";
-    print_array(data);
-    quicksort_parallel_entry(data);
-    std::cout << "Sorted array: ";
-    print_array(data);
-    auto check = data;
-    std::sort(check.begin(), check.end());
-    if (check != data) {
-        std::cerr << "Parallel quicksort failed" << std::endl;
-        return 1;
+void quicksort_parallel_entry(std::vector<int>& arr) {
+    if (arr.size() < 2) {
+        return;
     }
-    return 0;
+    parallel_quicksort_range(arr, 0, static_cast<int>(arr.size()) - 1);
 }
-#endif

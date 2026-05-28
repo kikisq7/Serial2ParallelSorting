@@ -1,106 +1,63 @@
-#!/usr/bin/env julia
-
+using Base.Threads
 using Polyester
 
-function selection_sort_sequential!(arr::Vector, start_idx::Int, end_idx::Int)
-    for i in start_idx:end_idx
-        min_idx = i
-        
-        for j in (i + 1):end_idx
-            if arr[j] < arr[min_idx]
-                min_idx = j
-            end
-        end
-        
-        arr[i], arr[min_idx] = arr[min_idx], arr[i]
-    end
-    return arr
-end
+const _SEL_MIN_CHUNK_ELEMS = 512
 
-function merge_sorted_chunks!(arr::Vector{T}, chunks::Vector{Vector{T}}, start_idx::Int) where T
-    # Merge all sorted chunks back into the array
-    idx = start_idx
-    chunk_ptrs = ones(Int, length(chunks))
-    
-    while true
-        # Find the minimum element among all chunk heads
-        min_chunk = 0
-        min_val::Union{T, Nothing} = nothing
-        
-        # Find first available chunk to initialize min_val
-        for i in 1:length(chunks)
-            if chunk_ptrs[i] <= length(chunks[i])
-                min_val = chunks[i][chunk_ptrs[i]]
-                min_chunk = i
-                break
-            end
-        end
-        
-        if min_chunk == 0 || min_val === nothing
-            break  # All chunks exhausted
-        end
-        
-        # Find the actual minimum
-        for i in (min_chunk + 1):length(chunks)
-            if chunk_ptrs[i] <= length(chunks[i])
-                val = chunks[i][chunk_ptrs[i]]
-                if val < min_val
-                    min_val = val
-                    min_chunk = i
+function batch_selection_local_mins!(arr, lo::Int, hi::Int, local_mins::Vector{Int}, nchunks::Int)
+    nt = length(local_mins)
+    span = hi - lo + 1
+    @assert span >= 1
+    chunks = max(1, min(nchunks, span, nt))
+    base, extra = divrem(span, chunks)
+    @batch for chunk in 1:chunks
+        @inbounds begin
+            len = base + (chunk <= extra ? 1 : 0)
+            chunk_lo = lo + (chunk - 1) * base + min(chunk - 1, extra)
+            chunk_hi = chunk_lo + len - 1
+            min_idx = chunk_lo
+            for j in (chunk_lo + 1):chunk_hi
+                if arr[j] < arr[min_idx]
+                    min_idx = j
                 end
             end
+            local_mins[chunk] = min_idx
         end
-        
-        arr[idx] = min_val
-        chunk_ptrs[min_chunk] += 1
-        idx += 1
     end
+end
+
+function serial_argmin_segment(arr, lo::Int, hi::Int)::Int
+    @inbounds min_idx = lo
+    @inbounds for j in (lo + 1):hi
+        if arr[j] < arr[min_idx]
+            min_idx = j
+        end
+    end
+    return min_idx
 end
 
 function parallel_selection_sort!(arr::Vector)
     n = length(arr)
-    if n <= 1
-        return arr
+    n <= 1 && return arr
+    nt = max(1, nthreads())
+    local_mins = Vector{Int}(undef, nt)
+
+    @inbounds for i in 1:(n - 1)
+        span = n - i + 1
+        raw_chunks = cld(span, _SEL_MIN_CHUNK_ELEMS)
+        chunks = max(1, min(nt, raw_chunks))
+        if chunks == 1
+            min_idx = serial_argmin_segment(arr, i, n)
+        else
+            batch_selection_local_mins!(arr, i, n, local_mins, chunks)
+            min_idx = local_mins[1]
+            for chunk in 2:chunks
+                candidate = local_mins[chunk]
+                if arr[candidate] < arr[min_idx] || (arr[candidate] == arr[min_idx] && candidate < min_idx)
+                    min_idx = candidate
+                end
+            end
+        end
+        arr[i], arr[min_idx] = arr[min_idx], arr[i]
     end
-    
-    # For small arrays, use sequential selection sort
-    if n < 200
-        return selection_sort_sequential!(arr, 1, n)
-    end
-    
-    # Bottom-up approach: divide into chunks and sort all in parallel
-    target_chunks = min(8, max(3, n ÷ 250))  # 3-8 chunks, roughly
-    chunk_size = max(150, n ÷ target_chunks)
-    num_chunks = (n + chunk_size - 1) ÷ chunk_size  # Ceiling division
-    
-    # Create chunks
-    chunks = Vector{Vector{eltype(arr)}}(undef, num_chunks)
-    for i in 1:num_chunks
-        start_idx = (i - 1) * chunk_size + 1
-        end_idx = min(i * chunk_size, n)
-        chunks[i] = arr[start_idx:end_idx]
-    end
-    
-    # Sort all chunks in parallel using Polyester
-    @batch for i in 1:num_chunks
-        chunks[i] = selection_sort_sequential!(chunks[i], 1, length(chunks[i]))
-    end
-    
-    # Merge chunks back into the array
-    merge_sorted_chunks!(arr, chunks, 1)
-    
     return arr
-end
-
-if abspath(PROGRAM_FILE) == @__FILE__
-    # Example usage
-    my_array = [64, 25, 12, 22, 11, 8, 5, 3, 1, 9, 7, 4]
-    println("Original array: ", my_array)
-    parallel_selection_sort!(my_array)
-    println("Sorted array: ", my_array)
-
-    my_array_2 = [5, 2, 8, 1, 9, 4, 7, 3, 6]
-    println("Original array: ", my_array_2)
-    parallel_selection_sort!(my_array_2)
-    println("Sorted array: ", my_array_2)
 end

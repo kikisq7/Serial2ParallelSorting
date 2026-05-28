@@ -1,109 +1,75 @@
-#include <iostream>
+#include <algorithm>
+#include <cstddef>
 #include <vector>
-#include <thread>
-#include <future>
-using namespace std;
 
-// Merges two subarrays of arr[].
-// First subarray is arr[left..mid]
-// Second subarray is arr[mid+1..right]
-void merge(vector<int>& arr, int left, int mid, int right) {
-    int n1 = mid - left + 1;
-    int n2 = right - mid;
+#include "../parallel_utils.hpp"
 
-    // Create temp vectors
-    vector<int> L(n1), R(n2);
+static void merge_runs(const std::vector<int>& src, std::vector<int>& dest,
+                       std::size_t left, std::size_t mid, std::size_t right) {
+    std::size_t i = left;
+    std::size_t j = mid;
+    std::size_t k = left;
 
-    // Copy data to temp vectors L[] and R[]
-    for (int i = 0; i < n1; i++)
-        L[i] = arr[left + i];
-    for (int j = 0; j < n2; j++)
-        R[j] = arr[mid + 1 + j];
-
-    int i = 0, j = 0;
-    int k = left;
-
-    // Merge the temp vectors back 
-    // into arr[left..right]
-    while (i < n1 && j < n2) {
-        if (L[i] <= R[j]) {
-            arr[k] = L[i];
-            i++;
+    while (i < mid && j < right) {
+        if (src[i] <= src[j]) {
+            dest[k++] = src[i++];
+        } else {
+            dest[k++] = src[j++];
         }
-        else {
-            arr[k] = R[j];
-            j++;
-        }
-        k++;
     }
 
-    // Copy the remaining elements of L[], 
-    // if there are any
-    while (i < n1) {
-        arr[k] = L[i];
-        i++;
-        k++;
+    while (i < mid) {
+        dest[k++] = src[i++];
     }
 
-    // Copy the remaining elements of R[], 
-    // if there are any
-    while (j < n2) {
-        arr[k] = R[j];
-        j++;
-        k++;
+    while (j < right) {
+        dest[k++] = src[j++];
     }
 }
 
-// Parallel merge sort implementation
-void parallelMergeSort(vector<int>& arr, int left, int right) {
-    if (left >= right)
-        return;
-
-    // For small arrays, use sequential merge sort
-    if (right - left < 100) {
-        int mid = left + (right - left) / 2;
-        parallelMergeSort(arr, left, mid);
-        parallelMergeSort(arr, mid + 1, right);
-        merge(arr, left, mid, right);
+static void parallel_merge_segment(std::vector<int>& buf) {
+    if (buf.size() <= 1) {
         return;
     }
 
-    int mid = left + (right - left) / 2;
-    
-    // Sort both halves in parallel
-    auto future1 = async(launch::async, [&]() {
-        parallelMergeSort(arr, left, mid);
-    });
-    
-    auto future2 = async(launch::async, [&]() {
-        parallelMergeSort(arr, mid + 1, right);
-    });
-    
-    // Wait for both halves to complete
-    future1.get();
-    future2.get();
-    
-    // Merge the sorted halves
-    merge(arr, left, mid, right);
+    std::vector<int> src = buf;
+    std::vector<int> dest(src.size(), 0);
+
+    std::size_t width = 1;
+
+    while (width < src.size()) {
+        const std::size_t merge_count =
+            (src.size() + 2 * width - 1) / (2 * width);
+
+        parallel_for_chunks(merge_count, [&](std::size_t begin, std::size_t end) {
+            for (std::size_t task_idx = begin; task_idx < end; ++task_idx) {
+                const std::size_t run_left = task_idx * 2 * width;
+                const std::size_t run_mid = std::min(run_left + width, src.size());
+                const std::size_t run_right = std::min(run_left + 2 * width, src.size());
+
+                if (run_mid < run_right) {
+                    merge_runs(src, dest, run_left, run_mid, run_right);
+                } else {
+                    for (std::size_t idx = run_left; idx < run_right; ++idx) {
+                        dest[idx] = src[idx];
+                    }
+                }
+            }
+        });
+
+        src.swap(dest);
+        width *= 2;
+    }
+
+    buf = std::move(src);
 }
 
-// Driver code
-#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
-int main() {
-    vector<int> arr = {38, 27, 43, 10, 15, 8, 22, 5, 12, 3, 18, 7};
-    
-    cout << "Original array: ";
-    for (int val : arr)
-        cout << val << " ";
-    cout << endl;
+void parallelMergeSort(std::vector<int>& arr, int left, int right) {
+    if (left >= right) {
+        return;
+    }
 
-    parallelMergeSort(arr, 0, arr.size() - 1);
-    
-    cout << "Sorted array: ";
-    for (int val : arr)
-        cout << val << " ";
-    cout << endl;
-    
-    return 0;
+    std::vector<int> segment(arr.begin() + left, arr.begin() + right + 1);
+    parallel_merge_segment(segment);
+    std::copy(segment.begin(), segment.end(), arr.begin() + left);
 }
-#endif

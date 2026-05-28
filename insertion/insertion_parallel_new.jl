@@ -1,101 +1,65 @@
-#!/usr/bin/env julia
-
+using Base.Threads
 using Polyester
 
-function insertion_sort_sequential!(arr::Vector, start_idx::Int, end_idx::Int)
-    for i in (start_idx + 1):end_idx
-        key = arr[i]
-        j = i - 1
-        
-        while j >= start_idx && arr[j] > key
-            arr[j+1] = arr[j]
-            j -= 1
-        end
-        arr[j+1] = key
-    end
-    return arr
-end
+const _INSERT_MIN_UPPER_PARALLEL = 9216
+const _INSERT_MIN_ELEMS_PER_CHUNK = 512
 
-function merge_sorted_chunks!(arr::Vector{T}, chunks::Vector{Vector{T}}, start_idx::Int) where T
-    # Merge all sorted chunks back into the array
-    idx = start_idx
-    chunk_ptrs = ones(Int, length(chunks))
-    
-    while true
-        # Find the minimum element among all chunk heads
-        min_chunk = 0
-        min_val::Union{T, Nothing} = nothing
-        
-        # Find first available chunk to initialize min_val
-        for i in 1:length(chunks)
-            if chunk_ptrs[i] <= length(chunks[i])
-                min_val = chunks[i][chunk_ptrs[i]]
-                min_chunk = i
-                break
-            end
-        end
-        
-        if min_chunk == 0 || min_val === nothing
-            break  # All chunks exhausted
-        end
-        
-        # Find the actual minimum
-        for i in (min_chunk + 1):length(chunks)
-            if chunk_ptrs[i] <= length(chunks[i])
-                val = chunks[i][chunk_ptrs[i]]
-                if val < min_val
-                    min_val = val
-                    min_chunk = i
+function batch_count_leq!(arr, upper::Int, key, partial::Vector{Int}, nchunks::Int)
+    nt = length(partial)
+    fill!(partial, 0)
+    upper <= 0 && return partial
+    chunks = max(1, min(nchunks, upper, nt))
+    base, extra = divrem(upper, chunks)
+    @batch for chunk in 1:chunks
+        @inbounds begin
+            len = base + (chunk <= extra ? 1 : 0)
+            lo = (chunk - 1) * base + min(chunk - 1, extra) + 1
+            hi = lo + len - 1
+            c = 0
+            for j in lo:hi
+                if arr[j] <= key
+                    c += 1
                 end
             end
+            partial[chunk] = c
         end
-        
-        arr[idx] = min_val
-        chunk_ptrs[min_chunk] += 1
-        idx += 1
     end
+    return partial
 end
 
-function parallel_insertion_sort!(arr::Vector)
+@inline function serial_count_leq(arr, upper::Int, key)::Int
+    c = 0
+    @inbounds for j in 1:upper
+        c += arr[j] <= key ? 1 : 0
+    end
+    return c
+end
+
+function parallel_insertion_sort!(arr::Vector{T}) where {T}
     n = length(arr)
-    if n <= 1
-        return arr
-    end
-    
-    # For small arrays, use sequential insertion sort
-    if n < 200
-        return insertion_sort_sequential!(arr, 1, n)
-    end
-    
-    # Bottom-up approach: divide into chunks and sort all in parallel
-    # Adaptive chunk size: aim for 3-8 chunks depending on array size
-    target_chunks = min(8, max(3, n ÷ 250))  # 3-8 chunks, roughly
-    chunk_size = max(150, n ÷ target_chunks)
-    num_chunks = (n + chunk_size - 1) ÷ chunk_size  # Ceiling division
-    
-    # Create chunks
-    chunks = Vector{Vector{eltype(arr)}}(undef, num_chunks)
-    for i in 1:num_chunks
-        start_idx = (i - 1) * chunk_size + 1
-        end_idx = min(i * chunk_size, n)
-        chunks[i] = arr[start_idx:end_idx]
-    end
-    
-    # Sort all chunks in parallel using Polyester
-    @batch for i in 1:num_chunks
-        chunks[i] = insertion_sort_sequential!(chunks[i], 1, length(chunks[i]))
-    end
-    
-    # Merge chunks back into the array
-    merge_sorted_chunks!(arr, chunks, 1)
-    
-    return arr
-end
+    n <= 1 && return arr
+    nt = max(1, nthreads())
+    partial = zeros(Int, nt)
 
-if abspath(PROGRAM_FILE) == @__FILE__
-    # Example usage
-    my_array = [5, 2, 8, 1, 9, 4, 7, 3, 6, 12, 11, 10]
-    println("Original array: ", my_array)
-    parallel_insertion_sort!(my_array)
-    println("Sorted array: ", my_array)
+    @inbounds for i in 2:n
+        key = arr[i]
+        upper = i - 1
+        if upper < _INSERT_MIN_UPPER_PARALLEL
+            s = serial_count_leq(arr, upper, key)
+        else
+            chunks = max(1, min(nt, cld(upper, _INSERT_MIN_ELEMS_PER_CHUNK)))
+            batch_count_leq!(arr, upper, key, partial, chunks)
+            s = partial[1]
+            @inbounds for k in 2:chunks
+                s += partial[k]
+            end
+        end
+        position = s + 1
+        position == i && continue
+
+        segment = copy(arr[position:i-1])
+        copyto!(arr, position + 1, segment, 1, length(segment))
+        arr[position] = key
+    end
+    return arr
 end

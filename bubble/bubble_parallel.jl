@@ -1,61 +1,81 @@
 using Polyester
-using Base.Threads
+using Base.Threads: nthreads
 
-function phase!(arr::Vector{T}, start::Int) where {T}
-    n = length(arr)
-    if n < 2
-        return false
-    end
-    
-    range_max = (n - 1 - start) ÷ 2
-    
-    swapped = false
-    lock_obj = ReentrantLock()
-    
-    # Calculate minbatch: larger batches reduce atomic write frequency
-    minbatch = max(100, range_max ÷ Threads.nthreads())  # One batch per thread roughly
-    
-    # Use @batch directly on iteration space - let Polyester handle chunking
-    @batch minbatch=minbatch for k in 0:range_max
-        i = start + 2*k
-        if i + 1 <= n && arr[i] > arr[i + 1]
-            arr[i], arr[i + 1] = arr[i + 1], arr[i]
-            lock(lock_obj) do
-                swapped = true
-            end
+"""Odd–even (transposition) bubble sort phases; stop after two successive idle phases."""
+
+function serial_adjacent_swaps!(arr, start::Int, pair_count::Int)::Bool
+    any_swap = false
+    @inbounds for pair_idx in 1:pair_count
+        j = start + 2 * (pair_idx - 1)
+        if arr[j] > arr[j + 1]
+            arr[j], arr[j + 1] = arr[j + 1], arr[j]
+            any_swap = true
         end
     end
-    
-    return swapped
+    return any_swap
 end
 
-function bubble_sort_parallel!(arr::Vector{T}) where {T}
+# Few coarse parallel chunks; each chunk runs many pair-swaps serially (no cross-thread atomics).
+const _BUBBLE_SERIAL_PAIR_THRESHOLD = 2048
+const _BUBBLE_MIN_PAIRS_PER_CHUNK = 768
+
+function batch_adjacent_swaps_chunked!(arr, start::Int, pair_count::Int, chunk_sw::Vector{UInt8})::Bool
+    nt = nthreads()
+    nchunks = max(1, min(nt, cld(pair_count, _BUBBLE_MIN_PAIRS_PER_CHUNK), pair_count))
+    if nchunks == 1
+        return serial_adjacent_swaps!(arr, start, pair_count)
+    end
+
+    base, extra = divrem(pair_count, nchunks)
+    @batch for c in 1:nchunks
+        len = base + (c <= extra ? 1 : 0)
+        lo = (c - 1) * base + min(c - 1, extra) + 1
+        hi = lo + len - 1
+        local_sw = false
+        @inbounds for pair_idx in lo:hi
+            j = start + 2 * (pair_idx - 1)
+            if arr[j] > arr[j + 1]
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+                local_sw = true
+            end
+        end
+        chunk_sw[c] = local_sw ? UInt8(1) : UInt8(0)
+    end
+    @inbounds for c in 1:nchunks
+        chunk_sw[c] != 0 && return true
+    end
+    return false
+end
+
+@inline function phase_adjacent_swaps!(arr, start::Int, pair_count::Int, chunk_sw::Vector{UInt8})::Bool
+    pair_count <= 0 && return false
+    if pair_count ≤ _BUBBLE_SERIAL_PAIR_THRESHOLD
+        return serial_adjacent_swaps!(arr, start, pair_count)
+    end
+    return batch_adjacent_swaps_chunked!(arr, start, pair_count, chunk_sw)
+end
+
+function bubble_sort_parallel!(arr)
     n = length(arr)
-    if n <= 1
-        return arr
+    n <= 1 && return arr
+
+    nt = max(1, nthreads())
+    chunk_sw = Vector{UInt8}(undef, nt)
+
+    no_swap_prev = false
+    @inbounds for phase in 1:n
+        start = isodd(phase) ? 1 : 2
+        pair_count = (n - start + 1) ÷ 2
+        swapped = phase_adjacent_swaps!(arr, start, pair_count, chunk_sw)
+        if !swapped
+            if no_swap_prev
+                break
+            end
+            no_swap_prev = true
+        else
+            no_swap_prev = false
+        end
     end
-    swapped = true
-    while swapped
-        swapped = false
-        swapped |= phase!(arr, 1)  # even indices in Julia (1-based)
-        swapped |= phase!(arr, 2)  # odd indices in Julia (1-based)
-    end
+
     return arr
-end
-
-function print_array(arr)
-    for v in arr
-        print("$v ")
-    end
-    println()
-end
-
-if abspath(PROGRAM_FILE) == @__FILE__
-    arr = [64, 34, 25, 12, 22, 11, 90, 5, 3, 8, 7, 2]
-    print("Original array: ")
-    print_array(arr)
-    bubble_sort_parallel!(arr)
-    print("Sorted array: ")
-    print_array(arr)
-    @assert arr == sort(arr)
 end

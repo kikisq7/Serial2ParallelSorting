@@ -16,20 +16,3 @@ def quicksort(arr, low=0, high=None):
         pi = partition(arr, low, high)
         quicksort(arr, low, pi - 1)
         quicksort(arr, pi + 1, high)
-
-
-def print_array(arr):
-    for v in arr:
-        print(v, end=" ")
-    print()
-
-
-if __name__ == "__main__":
-    arr = [10, 7, 8, 9, 1, 5]
-    print("Original array: ", end="")
-    print_array(arr)
-    quicksort(arr)
-    print("Sorted array: ", end="")
-    print_array(arr)
-
-

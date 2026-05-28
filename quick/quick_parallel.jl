@@ -1,47 +1,62 @@
 using Polyester
-using Base.Threads
 
-function quicksort_seq(arr)
-    if length(arr) <= 1
-        return copy(arr)
+@inline function partition!(arr, low, high)
+    @inbounds pivot = arr[high]
+    i = low - 1
+    @inbounds for j in low:(high - 1)
+        if arr[j] <= pivot
+            i += 1
+            arr[i], arr[j] = arr[j], arr[i]
+        end
     end
-    pivot = arr[end]
-    left = [x for x in arr[1:end-1] if x <= pivot]
-    right = [x for x in arr[1:end-1] if x > pivot]
-    return vcat(quicksort_seq(left), [pivot], quicksort_seq(right))
+    @inbounds arr[i + 1], arr[high] = arr[high], arr[i + 1]
+    return i + 1
 end
 
-function quicksort_parallel(arr::Vector{T}; depth::Int=3, cutoff::Int=1_000) where {T}
-    if length(arr) <= cutoff || depth <= 0
-        return quicksort_seq(arr)
+function batch_partition_frontier!(arr, current, pivots, valid)
+    @batch for idx in 1:length(current)
+        @inbounds local_low, local_high = current[idx]
+        if local_low < local_high
+            pivots[idx] = partition!(arr, local_low, local_high)
+            valid[idx] = 1
+        end
     end
-    pivot = arr[end]
-    left = T[x for x in arr[1:end-1] if x <= pivot]
-    right = T[x for x in arr[1:end-1] if x > pivot]
-
-    # Use @spawn for the two recursive calls (appropriate for just 2 tasks)
-    left_task = @spawn quicksort_parallel(left; depth=depth-1, cutoff=cutoff)
-    right_result = quicksort_parallel(right; depth=depth-1, cutoff=cutoff)
-    left_result = fetch(left_task)
-    
-    return vcat(left_result, [pivot], right_result)
 end
 
-function print_array(arr)
-    for v in arr
-        print("$v ")
+function quicksort_parallel_inplace_frontier!(arr)
+    low, high = 1, length(arr)
+    low >= high && return arr
+    current = Tuple{Int, Int}[(low, high)]
+
+    while !isempty(current)
+        m = length(current)
+        pivots = zeros(Int, m)
+        valid = zeros(UInt8, m)
+
+        batch_partition_frontier!(arr, current, pivots, valid)
+
+        next_ranges = Tuple{Int, Int}[]
+        sizehint!(next_ranges, max(16, 2 * m))
+        @inbounds for idx in 1:m
+            valid[idx] == 0 && continue
+            local_low, local_high = current[idx]
+            pivot_idx = pivots[idx]
+            if local_low < pivot_idx - 1
+                push!(next_ranges, (local_low, pivot_idx - 1))
+            end
+            if pivot_idx + 1 < local_high
+                push!(next_ranges, (pivot_idx + 1, local_high))
+            end
+        end
+        current = next_ranges
     end
-    println()
+    return arr
 end
 
-if abspath(PROGRAM_FILE) == @__FILE__
-    data = [10, 7, 8, 9, 1, 5, 12, 4, 6, 3, 11, 2]
-    print("Original array: ")
-    print_array(data)
-    out = quicksort_parallel(data; depth=3, cutoff=2)
-    print("Sorted array: ")
-    print_array(out)
-    @assert out == sort(data)
+function quicksort_parallel(arr::AbstractVector{Int})
+    n = length(arr)
+    work = Vector{Int}(undef, n)
+    copyto!(work, arr)
+    quicksort_parallel_inplace_frontier!(work)
+    return work
 end
-
-

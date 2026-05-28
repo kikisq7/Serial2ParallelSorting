@@ -1,48 +1,46 @@
-from concurrent.futures import ProcessPoolExecutor
+from parallel_utils import run_in_threads
 
 
-def _quicksort_seq(arr):
-    if len(arr) <= 1:
-        return arr
-    pivot = arr[-1]
-    left = [x for x in arr[:-1] if x <= pivot]
-    right = [x for x in arr[:-1] if x > pivot]
-    return _quicksort_seq(left) + [pivot] + _quicksort_seq(right)
+def partition(arr, low, high):
+    pivot = arr[high]
+    i = low - 1
+    for j in range(low, high):
+        if arr[j] <= pivot:
+            i += 1
+            arr[i], arr[j] = arr[j], arr[i]
+    arr[i + 1], arr[high] = arr[high], arr[i + 1]
+    return i + 1
 
 
-def _quicksort_parallel(arr, depth, cutoff, max_workers):
-    if len(arr) <= cutoff or depth <= 0:
-        return _quicksort_seq(arr)
+def quicksort_parallel(arr, max_workers=2):
+    work = list(arr)
+    low, high = 0, len(work) - 1
+    if low >= high:
+        return work
+    current = [(low, high)]
 
-    pivot = arr[-1]
-    left = [x for x in arr[:-1] if x <= pivot]
-    right = [x for x in arr[:-1] if x > pivot]
+    while current:
+        pivots = [0] * len(current)
+        valid = [0] * len(current)
 
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        left_future = executor.submit(_quicksort_parallel, left, depth - 1, cutoff, max_workers)
-        right_future = executor.submit(_quicksort_parallel, right, depth - 1, cutoff, max_workers)
-        left_sorted = left_future.result()
-        right_sorted = right_future.result()
-    return left_sorted + [pivot] + right_sorted
+        def worker(task_range):
+            for idx in task_range:
+                local_low, local_high = current[idx]
+                if local_low < local_high:
+                    pivots[idx] = partition(work, local_low, local_high)
+                    valid[idx] = 1
 
+        run_in_threads(len(current), worker, max_workers=max_workers)
 
-def quicksort_parallel(arr, max_workers=4, depth=3, cutoff=1_000):
-    return _quicksort_parallel(list(arr), depth, cutoff, max_workers)
+        next_ranges = []
+        for idx, (local_low, local_high) in enumerate(current):
+            if not valid[idx]:
+                continue
+            pivot_idx = pivots[idx]
+            if local_low < pivot_idx - 1:
+                next_ranges.append((local_low, pivot_idx - 1))
+            if pivot_idx + 1 < local_high:
+                next_ranges.append((pivot_idx + 1, local_high))
+        current = next_ranges
 
-
-def print_array(arr):
-    for v in arr:
-        print(v, end=" ")
-    print()
-
-
-if __name__ == "__main__":
-    data = [10, 7, 8, 9, 1, 5, 12, 4, 6, 3, 11, 2]
-    print("Original array: ", end="")
-    print_array(data)
-    out = quicksort_parallel(data, max_workers=4, depth=3, cutoff=2)
-    print("Sorted array: ", end="")
-    print_array(out)
-    assert out == sorted(data)
-
-
+    return work

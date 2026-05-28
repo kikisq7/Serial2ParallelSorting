@@ -1,89 +1,52 @@
-// C++ program to implement parallel Selection Sort
-#include <iostream>
-#include <vector>
-#include <thread>
-#include <future>
 #include <algorithm>
-using namespace std;
+#include <cstddef>
+#include <vector>
 
-// Parallel selection sort using divide and conquer approach
-void parallelSelectionSort(vector<int>& arr, int start, int end) {
-    if (start >= end) return;
-    
-    // For small arrays, use sequential selection sort
-    if (end - start < 50) {
-        for (int i = start; i < end; ++i) {
-            int min_idx = i;
-            
-            for (int j = i + 1; j <= end; ++j) {
-                if (arr[j] < arr[min_idx]) {
-                    min_idx = j;
-                }
-            }
-            
-            swap(arr[i], arr[min_idx]);
-        }
+#include "../parallel_utils.hpp"
+
+static void parallel_selection_segment(std::vector<int>& arr) {
+    const std::size_t n = arr.size();
+    if (n < 2) {
         return;
     }
-    
-    // Find minimum element in parallel
-    int mid = start + (end - start) / 2;
-    
-    // Find minimum in both halves in parallel
-    auto future1 = async(launch::async, [&]() {
-        int min_idx = start;
-        for (int i = start + 1; i <= mid; ++i) {
-            if (arr[i] < arr[min_idx]) {
-                min_idx = i;
-            }
-        }
-        return min_idx;
-    });
-    
-    auto future2 = async(launch::async, [&]() {
-        int min_idx = mid + 1;
-        for (int i = mid + 2; i <= end; ++i) {
-            if (arr[i] < arr[min_idx]) {
-                min_idx = i;
-            }
-        }
-        return min_idx;
-    });
-    
-    int min1 = future1.get();
-    int min2 = future2.get();
-    
-    // Find overall minimum
-    int global_min = (arr[min1] < arr[min2]) ? min1 : min2;
-    
-    // Swap with first element
-    swap(arr[start], arr[global_min]);
-    
-    // Recursively sort the rest
-    parallelSelectionSort(arr, start + 1, end);
-}
 
-#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
-void printArray(const vector<int>& arr) {
-    for (int val : arr) {
-        cout << val << " ";
+    std::vector<std::size_t> local_mins;
+    local_mins.reserve(std::min<std::size_t>(n, 512U));
+
+    for (std::size_t i = 0; i + 1 < n; ++i) {
+        const auto ranges = chunk_ranges(static_cast<std::size_t>(n - i));
+        local_mins.assign(ranges.size(), i);
+
+        parallel_for_chunks(ranges.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t range_idx = begin; range_idx < end; ++range_idx) {
+                const std::size_t range_begin = i + ranges[range_idx].first;
+                const std::size_t range_end = i + ranges[range_idx].second;
+                std::size_t min_idx = range_begin;
+
+                for (std::size_t j = range_begin + 1; j < range_end; ++j) {
+                    if (arr[j] < arr[min_idx]) {
+                        min_idx = j;
+                    }
+                }
+                local_mins[range_idx] = min_idx;
+            }
+        });
+
+        std::size_t min_idx = local_mins.front();
+        for (std::size_t candidate : local_mins) {
+            if (arr[candidate] < arr[min_idx]) {
+                min_idx = candidate;
+            }
+        }
+        std::swap(arr[i], arr[min_idx]);
     }
-    cout << endl;
 }
-#endif
 
-#if !defined(SORTING_LIBRARY) && !defined(BENCHMARK_MODE)
-int main() {
-    vector<int> arr = {64, 25, 12, 22, 11, 8, 5, 3, 1, 9, 7, 4};
-    
-    cout << "Original array: ";
-    printArray(arr);
-    
-    parallelSelectionSort(arr, 0, arr.size() - 1);
-    
-    cout << "Sorted array: ";
-    printArray(arr);
-    
-    return 0;
+void parallelSelectionSort(std::vector<int>& arr, int left, int right) {
+    if (left >= right) {
+        return;
+    }
+    std::vector<int> segment(arr.begin() + left, arr.begin() + right + 1);
+    parallel_selection_segment(segment);
+    std::copy(segment.begin(), segment.end(), arr.begin() + left);
 }
-#endif

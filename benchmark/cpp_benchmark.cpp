@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -135,8 +136,33 @@ void selectionSort_serial(std::vector<int>& arr) {
     }
 }
 
-static const int ITER = 5;
+static const int ITER = 3;
 static const int WARMUP = 1;
+
+static vector<int> parse_benchmark_sizes() {
+    const char* env = std::getenv("BENCHMARK_SIZES");
+    vector<int> out;
+    if (!env || !std::strlen(env)) {
+        out = {1'000, 10'000, 20'000, 40'000, 80'000, 100'000,
+               200'000, 400'000, 800'000, 1'000'000};
+        return out;
+    }
+    string s(env);
+    size_t start = 0;
+    while (start < s.size()) {
+        while (start < s.size() && (s[start] == ' ' || s[start] == '\t')) start++;
+        if (start >= s.size()) break;
+        size_t comma = s.find(',', start);
+        string tok = s.substr(start, comma == string::npos ? string::npos : comma - start);
+        while (!tok.empty() && (tok.back() == ' ' || tok.back() == '\t')) tok.pop_back();
+        if (!tok.empty()) out.push_back(stoi(tok));
+        if (comma == string::npos) break;
+        start = comma + 1;
+    }
+    if (out.empty()) out = {1'000, 10'000, 20'000, 40'000, 80'000, 100'000,
+                            200'000, 400'000, 800'000, 1'000'000};
+    return out;
+}
 
 static vector<int> read_data(int n, int iteration = -1) {
     vector<string> candidates;
@@ -307,9 +333,7 @@ int main() {
     cout << "C++ Parallel vs Serial Sorting Algorithm Benchmark\n";
     cout << "=================================================\n";
 
-    // vector<int> sizes = {10000000, 100000000};
-    // vector<int> sizes = {1000000};
-    vector<int> sizes = {10000};
+    vector<int> sizes = parse_benchmark_sizes();
     for (int n : sizes) {
         cout << "\n--- Size: " << n << " ---\n";
 
