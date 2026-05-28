@@ -1,5 +1,6 @@
-from parallel_utils import parallel_ranges
 from concurrent.futures import ThreadPoolExecutor
+
+from parallel_utils import parallel_ranges
 
 
 def _partition(arr, low, high):

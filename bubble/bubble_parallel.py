@@ -8,14 +8,14 @@ def bubble_sort_parallel(arr):
 
     for phase in range(n):
         start = phase % 2
-        pair_count = (n - start) // 2
 
         def compare_swap(indices):
             for pair_idx in indices:
                 j = start + 2 * pair_idx
-                if arr[j] > arr[j + 1]:
+                if j + 1 < n and arr[j] > arr[j + 1]:
                     arr[j], arr[j + 1] = arr[j + 1], arr[j]
 
+        pair_count = max(0, (n - 1 - start) // 2 + 1)
         run_in_threads(pair_count, compare_swap)
 
     return arr

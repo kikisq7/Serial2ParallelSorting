@@ -47,7 +47,6 @@ const TEST_SIZES = parse_test_sizes()
 const ITER = 3
 const WARMUP = 1
 
-const SERIAL_THREADS = 1
 const PARALLEL_THREADS = 64
 
 function read_data(n::Int, iteration::Union{Int, Nothing} = nothing)
@@ -88,78 +87,6 @@ function summarize_times(iter_medians::Vector{Float64}, name::String)
     median_ns = round(median(iter_medians))
     std_ns = length(iter_medians) > 1 ? round(std(iter_medians)) : 0
     (; name, mean_ns, median_ns, std_ns, min_ns = round(minimum(iter_medians)), max_ns = round(maximum(iter_medians)))
-end
-
-# BenchmarkTools: kernel-only timing; same dataset per iteration as Search benchmarks.
-# evals=1, seconds=1.0 — seconds caps total *sampling* time, not one evaluation.
-# Wall-clock limit for the full benchmark (serial + parallel) is enforced by run_julia_benchmark.sh (BENCHMARK_TIMEOUT_SEC).
-function bench_sort_over_iterations(name::String, f::F, size::Int, inplace::Bool) where {F}
-    iter_medians = Float64[]
-    for iteration in 1:ITER
-        data = read_data(size, iteration - 1)
-        verify_sorted!(f, data, inplace)
-        for _ in 1:WARMUP
-            f(copy(data))
-        end
-        trial = @benchmark ($f)(work) setup = (work = copy($data)) evals = 1 seconds = 1.0
-        push!(iter_medians, median(trial.times))
-    end
-    summarize_times(iter_medians, name)
-end
-
-function run_serial_benchmarks_only()
-    println("\n" * "="^80)
-    println("SERIAL BENCHMARKS (Thread count: $(Threads.nthreads()))")
-    println("="^80)
-
-    if Threads.nthreads() != SERIAL_THREADS
-        @warn "Expected $SERIAL_THREADS thread(s) for serial benchmarks, but got $(Threads.nthreads())"
-    end
-
-    # (name, f, verify_inplace_for_f, julia_alg, julia_baseline_inplace) — baseline may differ (e.g. quicksort!)
-    algos = [
-        ("bubble_serial", bubble_sort!, true, InsertionSort, true),
-        ("insertion_serial", insertion_sort!, true, InsertionSort, true),
-        ("merge_serial", mergesort, false, MergeSort, false),
-        ("quick_serial", quicksort!, true, QuickSort, false),
-        ("selection_serial", selection_sort!, true, InsertionSort, true),
-    ]
-
-    for n in TEST_SIZES
-        println("\n--- Size: $n (SERIAL) ---")
-
-        println("Benchmarking builtin_sort (default hybrid)...")
-        builtin_res = bench_sort_over_iterations("builtin_sort", x -> sort(x), n, false)
-
-        for (serial_name, serial_func, serial_ip, julia_alg, julia_ip) in algos
-            println("Benchmarking $serial_name...")
-            try
-                serial_res = bench_sort_over_iterations(serial_name, serial_func, n, serial_ip)
-
-                julia_alg_name = string(julia_alg)
-                println("Benchmarking builtin_sort(alg=$julia_alg_name)...")
-                julia_alg_func = julia_ip ? (x -> sort!(x, alg = julia_alg)) : (x -> sort(x, alg = julia_alg))
-                julia_alg_res = bench_sort_over_iterations("builtin_$(julia_alg_name)", julia_alg_func, n, julia_ip)
-
-                println("\nResults for $serial_name:")
-                println("  $serial_name: $(round(serial_res.mean_ns/1e6, digits=6)) ms")
-                println("  builtin_sort(alg=$julia_alg_name): $(round(julia_alg_res.mean_ns/1e6, digits=6)) ms")
-                println("  builtin_sort(default): $(round(builtin_res.mean_ns/1e6, digits=6)) ms")
-
-                serial_vs_julia_alg = julia_alg_res.mean_ns / serial_res.mean_ns
-                serial_vs_builtin = builtin_res.mean_ns / serial_res.mean_ns
-                julia_alg_vs_builtin = builtin_res.mean_ns / julia_alg_res.mean_ns
-                println("  builtin_sort(alg=$julia_alg_name) vs $serial_name: $(round(serial_vs_julia_alg, digits=2))x")
-                println("  builtin_sort(default) vs $serial_name: $(round(serial_vs_builtin, digits=2))x")
-                println("  builtin_sort(default) vs builtin_sort(alg=$julia_alg_name): $(round(julia_alg_vs_builtin, digits=2))x")
-                println()
-            catch e
-                println("ERROR: Failed to benchmark $serial_name")
-                println("  ", e)
-                println()
-            end
-        end
-    end
 end
 
 # Serial and parallel (and baselines) measured on identical `data` each iteration.
@@ -238,14 +165,14 @@ function bench_paired_parallel_block(
     println()
 end
 
-function run_parallel_benchmarks()
-    println("\n" * "="^80)
-    println("PARALLEL BENCHMARKS (Thread count: $(Threads.nthreads()))")
-    println("="^80)
+function run_benchmarks()
+    println("Julia Parallel vs Serial Sorting Algorithm Benchmark")
+    println("=" ^ 60)
+    println("Thread count: $(Threads.nthreads())  BENCHMARK_SIZES=$(join(TEST_SIZES, ','))")
 
     if Threads.nthreads() != PARALLEL_THREADS
-        @warn "Expected $PARALLEL_THREADS thread(s) for parallel benchmarks, but got $(Threads.nthreads())"
-        println("Run with: julia -t $PARALLEL_THREADS $(basename(@__FILE__)) parallel")
+        @warn "Expected $PARALLEL_THREADS thread(s) for parallel implementations, but got $(Threads.nthreads())"
+        println("Run with: julia -t $PARALLEL_THREADS $(basename(@__FILE__))")
     end
 
     # parallel_ip / serial_ip / julia_ip: how each implementation treats the buffer (see verify_sorted!)
@@ -260,10 +187,10 @@ function run_parallel_benchmarks()
     builtin_f = x -> sort(x)
 
     for n in TEST_SIZES
-        println("\n--- Size: $n (PARALLEL) ---")
+        println("\n--- Size: $n ---")
 
         for (parallel_name, parallel_func, serial_name, serial_func, p_ip, s_ip, j_ip, julia_alg) in algos
-            println("Benchmarking $parallel_name (paired with $serial_name on identical datasets)...")
+            println("Benchmarking $parallel_name vs $serial_name (paired datasets)...")
             try
                 julia_alg_name = string(julia_alg)
                 julia_alg_func = j_ip ? (x -> sort!(x, alg = julia_alg)) : (x -> sort(x, alg = julia_alg))
@@ -283,22 +210,20 @@ function run_parallel_benchmarks()
             end
         end
     end
+
+    println("\nBenchmark complete!")
 end
 
 function main()
-    mode = length(ARGS) > 0 ? ARGS[1] : "both"
+    mode = length(ARGS) > 0 ? ARGS[1] : "default"
 
-    if mode == "serial"
-        run_serial_benchmarks_only()
-    elseif mode == "parallel"
-        run_parallel_benchmarks()
-    elseif mode == "both"
-        println("Use run_julia_benchmark.sh to run both serial and parallel benchmarks")
-        println("Or run separately:")
-        println("  julia -t 1 $(basename(@__FILE__)) serial")
-        println("  julia -t $PARALLEL_THREADS $(basename(@__FILE__)) parallel")
+    if mode in ("default", "both", "parallel", "all")
+        run_benchmarks()
+    elseif mode == "serial"
+        @warn "serial-only mode is deprecated; running paired parallel vs serial benchmark instead"
+        run_benchmarks()
     else
-        error("Unknown mode: $mode. Use 'serial', 'parallel', or 'both'")
+        error("Unknown mode: $mode. Use default (no args) or 'all'")
     end
 end
 

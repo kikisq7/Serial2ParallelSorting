@@ -1,5 +1,6 @@
-from parallel_utils import parallel_ranges
 from concurrent.futures import ThreadPoolExecutor
+
+from parallel_utils import parallel_ranges
 
 
 def parallel_selection_sort(arr, left=0, right=None):

@@ -1,6 +1,38 @@
 using Polyester
 
-function parallel_mergesort(arr::Vector)
+function _merge_block(source::AbstractVector{Int}, left::Int, mid::Int, right::Int)
+    buf = Vector{Int}(undef, right - left)
+    i = left
+    j = mid
+    k = 1
+
+    while i < mid && j < right
+        if source[i] <= source[j]
+            buf[k] = source[i]
+            i += 1
+        else
+            buf[k] = source[j]
+            j += 1
+        end
+        k += 1
+    end
+
+    while i < mid
+        buf[k] = source[i]
+        i += 1
+        k += 1
+    end
+
+    while j < right
+        buf[k] = source[j]
+        j += 1
+        k += 1
+    end
+
+    return buf
+end
+
+function parallel_mergesort(arr::Vector{Int})
     n = length(arr)
     n < 2 && return copy(arr)
 
@@ -11,37 +43,22 @@ function parallel_mergesort(arr::Vector)
     while width < n
         w = width
         block_count = cld(n, 2 * w)
-        @batch for block in 0:(block_count - 1)
-            left = block * 2 * w + 1
+        merged = Vector{Vector{Int}}(undef, block_count)
+
+        @batch for block in 1:block_count
+            left = (block - 1) * 2 * w + 1
             mid = min(left + w, n + 1)
             right = min(left + 2 * w, n + 1)
-            i = left
-            j = mid
-            k = left
-
-            while i < mid && j < right
-                if source[i] <= source[j]
-                    dest[k] = source[i]
-                    i += 1
-                else
-                    dest[k] = source[j]
-                    j += 1
-                end
-                k += 1
-            end
-
-            while i < mid
-                dest[k] = source[i]
-                i += 1
-                k += 1
-            end
-
-            while j < right
-                dest[k] = source[j]
-                j += 1
-                k += 1
-            end
+            merged[block] = _merge_block(source, left, mid, right)
         end
+
+        for block in 1:block_count
+            left = (block - 1) * 2 * w + 1
+            right = min(left + 2 * w, n + 1)
+            len = right - left
+            dest[left:(left + len - 1)] = merged[block]
+        end
+
         source, dest = dest, source
         width *= 2
     end

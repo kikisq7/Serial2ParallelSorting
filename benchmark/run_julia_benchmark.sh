@@ -1,8 +1,7 @@
 #!/bin/bash
-# Julia Sorting benchmarks (serial: 1 thread, parallel: 64 threads) via BenchmarkTools.jl.
+# Julia Sorting benchmarks (paired parallel vs serial per algorithm/size) via BenchmarkTools.jl.
 #
-# Default BENCHMARK_SIZES: 1e3..1e6 (2×/4×/8× steps). Wall clock: BENCHMARK_TIMEOUT_SEC (default 600)
-# for the combined serial + parallel run (same total cap as C++/Python).
+# Default BENCHMARK_SIZES: 1e3..1e6 (2×/4×/8× steps). Wall clock: BENCHMARK_TIMEOUT_SEC (default 600).
 #
 # Large arrays without huge test files:
 #   export USE_CUDA_DATA=1
@@ -22,6 +21,7 @@ TEST_DATA_DIR="$SCRIPT_DIR/../test_data"
 export BENCHMARK_SIZES="${BENCHMARK_SIZES:-1000,10000,20000,40000,80000,100000,200000,400000,800000,1000000}"
 export BENCHMARK_TIMEOUT_SEC="${BENCHMARK_TIMEOUT_SEC:-600}"
 export USE_CUDA_DATA="${USE_CUDA_DATA:-0}"
+export JULIA_BENCHMARK_THREADS="${JULIA_BENCHMARK_THREADS:-64}"
 
 run_with_timeout() {
   local to="${BENCHMARK_TIMEOUT_SEC:?}"
@@ -70,25 +70,11 @@ fi
 
 echo "=========================================="
 echo " Julia Sorting Benchmark"
-echo " BENCHMARK_SIZES=$BENCHMARK_SIZES  BENCHMARK_TIMEOUT_SEC=$BENCHMARK_TIMEOUT_SEC  USE_CUDA_DATA=$USE_CUDA_DATA"
+echo " BENCHMARK_SIZES=$BENCHMARK_SIZES  BENCHMARK_TIMEOUT_SEC=$BENCHMARK_TIMEOUT_SEC"
+echo " JULIA_BENCHMARK_THREADS=$JULIA_BENCHMARK_THREADS  USE_CUDA_DATA=$USE_CUDA_DATA"
 echo "=========================================="
 
-JULIA_CMD_QUOTED="$(printf '%q ' "${JULIA_CMD[@]}")"
-BENCHMARK_SCRIPT_QUOTED="$(printf '%q' "$BENCHMARK_SCRIPT")"
-
-run_with_timeout bash -c "
-set -euo pipefail
-echo ''
-echo 'Step 1: SERIAL (1 thread)...'
-echo '---------------------------------------------------'
-${JULIA_CMD_QUOTED} -t 1 ${BENCHMARK_SCRIPT_QUOTED} serial
-echo ''
-echo '=========================================='
-echo ''
-echo 'Step 2: PARALLEL (64 threads)...'
-echo '------------------------------------------------------'
-${JULIA_CMD_QUOTED} -t 64 ${BENCHMARK_SCRIPT_QUOTED} parallel
-"
+run_with_timeout "${JULIA_CMD[@]}" -t "$JULIA_BENCHMARK_THREADS" "$BENCHMARK_SCRIPT"
 
 echo ""
 echo "=========================================="

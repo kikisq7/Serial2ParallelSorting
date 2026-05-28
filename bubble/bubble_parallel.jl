@@ -6,10 +6,8 @@ function bubble_sort_parallel!(arr::Vector)
 
     for phase in 0:(n - 1)
         start = 1 + (phase % 2)
-        pair_count = div(n - start, 2) + 1
-        @batch for pair_idx in 0:(pair_count - 1)
-            j = start + 2 * pair_idx
-            if j < n && arr[j] > arr[j + 1]
+        @batch for j in start:2:(n - 1)
+            if arr[j] > arr[j + 1]
                 arr[j], arr[j + 1] = arr[j + 1], arr[j]
             end
         end
