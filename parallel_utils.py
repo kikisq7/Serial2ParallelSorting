@@ -3,6 +3,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, List, Optional
 
+_TARGET_TASKS_PER_WORKER = 2048
 _MAX_WORKERS = max(2, int(os.environ.get("SORTING_PY_MAX_WORKERS", "8")))
 _EXECUTOR_LOCK = threading.Lock()
 _EXECUTORS: dict[int, ThreadPoolExecutor] = {}
@@ -12,8 +13,9 @@ def get_thread_count(task_count: int, max_workers: Optional[int] = None) -> int:
     if task_count <= 0:
         return 0
     hardware_workers = os.cpu_count() or 1
-    requested_workers = 2 if task_count > 1 else 1
-    out = max(1, min(max(hardware_workers, requested_workers), _MAX_WORKERS, task_count))
+    chunk_limited_workers = (task_count + _TARGET_TASKS_PER_WORKER - 1) // _TARGET_TASKS_PER_WORKER
+    requested_workers = max(2 if task_count > 1 else 1, chunk_limited_workers)
+    out = max(1, min(hardware_workers, _MAX_WORKERS, task_count, requested_workers))
     if max_workers is not None:
         out = max(1, min(out, max(1, int(max_workers))))
     return out

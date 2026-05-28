@@ -1,4 +1,4 @@
-function bubble_sort!(arr::Vector)
+function bubble_sort!(arr)
     n = length(arr)
     for i in 1:n
         swapped = false
@@ -8,7 +8,9 @@ function bubble_sort!(arr::Vector)
                 swapped = true
             end
         end
-        !swapped && break
+        if !swapped
+            break
+        end
     end
-    return arr
+    return nothing
 end

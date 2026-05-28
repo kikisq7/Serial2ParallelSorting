@@ -1,73 +1,62 @@
 using Polyester
 
-function _partition_segment!(segment::Vector{Int})
-    low = 1
-    high = length(segment)
-    pivot = segment[high]
-    pivot_index = low - 1
-    for j in low:(high - 1)
-        if segment[j] < pivot
-            pivot_index += 1
-            segment[pivot_index], segment[j] = segment[j], segment[pivot_index]
+@inline function partition!(arr, low, high)
+    @inbounds pivot = arr[high]
+    i = low - 1
+    @inbounds for j in low:(high - 1)
+        if arr[j] <= pivot
+            i += 1
+            arr[i], arr[j] = arr[j], arr[i]
         end
     end
-    pivot_index += 1
-    segment[pivot_index], segment[high] = segment[high], segment[pivot_index]
-    return pivot_index
+    @inbounds arr[i + 1], arr[high] = arr[high], arr[i + 1]
+    return i + 1
 end
 
-function quicksort_parallel(arr::Vector{Int})
-    work = copy(arr)
-    n = length(work)
-    n < 2 && return work
-
-    segments = Tuple{Int, Int}[(1, n)]
-    while !isempty(segments)
-        segment_count = length(segments)
-        partitioned = Vector{Vector{Int}}(undef, segment_count)
-        pivot_locals = Vector{Int}(undef, segment_count)
-        active = Vector{Int}(undef, 0)
-
-        for idx in 1:segment_count
-            low, high = segments[idx]
-            if low < high
-                partitioned[idx] = copy(@view work[low:high])
-                push!(active, idx)
-            end
+function batch_partition_frontier!(arr, current, pivots, valid)
+    @batch for idx in 1:length(current)
+        @inbounds local_low, local_high = current[idx]
+        if local_low < local_high
+            pivots[idx] = partition!(arr, local_low, local_high)
+            valid[idx] = 1
         end
-
-        @batch for pos in eachindex(active)
-            idx = active[pos]
-            pivot_locals[idx] = _partition_segment!(partitioned[idx])
-        end
-
-        left_children = Vector{Tuple{Int, Int}}(undef, segment_count)
-        right_children = Vector{Tuple{Int, Int}}(undef, segment_count)
-        has_left = falses(segment_count)
-        has_right = falses(segment_count)
-
-        for idx in active
-            low, high = segments[idx]
-            work[low:high] = partitioned[idx]
-            pivot_local = pivot_locals[idx]
-            global_pivot = low + pivot_local - 1
-            if low < global_pivot - 1
-                left_children[idx] = (low, global_pivot - 1)
-                has_left[idx] = true
-            end
-            if global_pivot + 1 < high
-                right_children[idx] = (global_pivot + 1, high)
-                has_right[idx] = true
-            end
-        end
-
-        next_segments = Tuple{Int, Int}[]
-        for idx in 1:segment_count
-            has_left[idx] && push!(next_segments, left_children[idx])
-            has_right[idx] && push!(next_segments, right_children[idx])
-        end
-        segments = next_segments
     end
+end
 
+function quicksort_parallel_inplace_frontier!(arr)
+    low, high = 1, length(arr)
+    low >= high && return arr
+    current = Tuple{Int, Int}[(low, high)]
+
+    while !isempty(current)
+        m = length(current)
+        pivots = zeros(Int, m)
+        valid = zeros(UInt8, m)
+
+        batch_partition_frontier!(arr, current, pivots, valid)
+
+        next_ranges = Tuple{Int, Int}[]
+        sizehint!(next_ranges, max(16, 2 * m))
+        @inbounds for idx in 1:m
+            valid[idx] == 0 && continue
+            local_low, local_high = current[idx]
+            pivot_idx = pivots[idx]
+            if local_low < pivot_idx - 1
+                push!(next_ranges, (local_low, pivot_idx - 1))
+            end
+            if pivot_idx + 1 < local_high
+                push!(next_ranges, (pivot_idx + 1, local_high))
+            end
+        end
+        current = next_ranges
+    end
+    return arr
+end
+
+function quicksort_parallel(arr::AbstractVector{Int})
+    n = length(arr)
+    work = Vector{Int}(undef, n)
+    copyto!(work, arr)
+    quicksort_parallel_inplace_frontier!(work)
     return work
 end
