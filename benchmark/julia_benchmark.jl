@@ -47,7 +47,7 @@ const TEST_SIZES = parse_test_sizes()
 const ITER = 3
 const WARMUP = 1
 
-const PARALLEL_THREADS = 64
+const PARALLEL_THREADS = 32
 
 function read_data(n::Int, iteration::Union{Int, Nothing} = nothing)
     if _USE_CUDA_DATA
