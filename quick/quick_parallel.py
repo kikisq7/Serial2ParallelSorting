@@ -1,46 +1,48 @@
-from parallel_utils import run_in_threads
+from parallel_utils import parallel_ranges
+from concurrent.futures import ThreadPoolExecutor
 
 
-def partition(arr, low, high):
+def _partition(arr, low, high):
     pivot = arr[high]
     i = low - 1
     for j in range(low, high):
-        if arr[j] <= pivot:
+        if arr[j] < pivot:
             i += 1
             arr[i], arr[j] = arr[j], arr[i]
     arr[i + 1], arr[high] = arr[high], arr[i + 1]
     return i + 1
 
 
-def quicksort_parallel(arr, max_workers=2):
+def quicksort_parallel(arr, low=0, high=None, max_workers=None):
     work = list(arr)
-    low, high = 0, len(work) - 1
+    if high is None:
+        high = len(work) - 1
     if low >= high:
         return work
-    current = [(low, high)]
 
-    while current:
-        pivots = [0] * len(current)
-        valid = [0] * len(current)
+    segments = [(low, high)]
+    while segments:
+        ranges = parallel_ranges(len(segments), max_workers=max_workers)
+        next_segments_by_range = [[] for _ in ranges]
 
-        def worker(task_range):
-            for idx in task_range:
-                local_low, local_high = current[idx]
-                if local_low < local_high:
-                    pivots[idx] = partition(work, local_low, local_high)
-                    valid[idx] = 1
+        def partition_range(args):
+            range_index, segment_range = args
+            children = next_segments_by_range[range_index]
+            for segment_index in segment_range:
+                lo, hi = segments[segment_index]
+                if lo < hi:
+                    pivot_index = _partition(work, lo, hi)
+                    if lo < pivot_index - 1:
+                        children.append((lo, pivot_index - 1))
+                    if pivot_index + 1 < hi:
+                        children.append((pivot_index + 1, hi))
 
-        run_in_threads(len(current), worker, max_workers=max_workers)
+        if len(ranges) == 1:
+            partition_range((0, ranges[0]))
+        else:
+            with ThreadPoolExecutor(max_workers=len(ranges)) as executor:
+                list(executor.map(partition_range, enumerate(ranges)))
 
-        next_ranges = []
-        for idx, (local_low, local_high) in enumerate(current):
-            if not valid[idx]:
-                continue
-            pivot_idx = pivots[idx]
-            if local_low < pivot_idx - 1:
-                next_ranges.append((local_low, pivot_idx - 1))
-            if pivot_idx + 1 < local_high:
-                next_ranges.append((pivot_idx + 1, local_high))
-        current = next_ranges
+        segments = [segment for children in next_segments_by_range for segment in children]
 
     return work

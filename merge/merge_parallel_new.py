@@ -1,56 +1,52 @@
 from parallel_utils import run_in_threads
 
 
-def _merge_runs(src, dest, left, mid, right):
-    i = left
-    j = mid
-    k = left
+def _merge_block(source, dest, left, mid, right):
+    i, j, k = left, mid, left
     while i < mid and j < right:
-        if src[i] <= src[j]:
-            dest[k] = src[i]
+        if source[i] <= source[j]:
+            dest[k] = source[i]
             i += 1
         else:
-            dest[k] = src[j]
+            dest[k] = source[j]
             j += 1
         k += 1
+
     while i < mid:
-        dest[k] = src[i]
+        dest[k] = source[i]
         i += 1
         k += 1
+
     while j < right:
-        dest[k] = src[j]
+        dest[k] = source[j]
         j += 1
         k += 1
 
 
-def parallel_merge_sort(arr, left=0, right=None):
-    if right is None:
-        right = len(arr) - 1
+def parallel_merge_sort(arr, left, right):
     if left >= right:
         return arr
 
-    src = list(arr[left : right + 1])
-    dest = [0] * len(src)
+    data = arr[left : right + 1]
+    n = len(data)
+    buffer = [None] * n
     width = 1
-    n = len(src)
+    source = data
+    dest = buffer
 
     while width < n:
-        merge_count = (n + 2 * width - 1) // (2 * width)
+        block_count = (n + 2 * width - 1) // (2 * width)
 
-        def worker(task_range):
-            for task_idx in task_range:
-                run_left = task_idx * 2 * width
-                run_mid = min(run_left + width, n)
-                run_right = min(run_left + 2 * width, n)
-                if run_mid < run_right:
-                    _merge_runs(src, dest, run_left, run_mid, run_right)
-                else:
-                    for idx in range(run_left, run_right):
-                        dest[idx] = src[idx]
+        def merge_blocks(blocks):
+            for block in blocks:
+                lo = block * 2 * width
+                mid = min(lo + width, n)
+                hi = min(lo + 2 * width, n)
+                _merge_block(source, dest, lo, mid, hi)
 
-        run_in_threads(merge_count, worker)
-        src, dest = dest, src
+        run_in_threads(block_count, merge_blocks)
+        source, dest = dest, source
         width *= 2
 
-    arr[left : right + 1] = src
+    arr[left : right + 1] = source[:]
     return arr

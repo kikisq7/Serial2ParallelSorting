@@ -1,72 +1,68 @@
 #include <utility>
 #include <vector>
 
-#include "../parallel_utils.hpp"
+namespace quick_parallel_detail {
 
-static int qp_partition(std::vector<int>& arr, int low, int high) {
-    const int pivot = arr[high];
+int partition(std::vector<int>& arr, int low, int high) {
+    const int pivot = arr[static_cast<std::size_t>(high)];
     int i = low - 1;
+
     for (int j = low; j < high; ++j) {
-        if (arr[j] < pivot) {
+        if (arr[static_cast<std::size_t>(j)] < pivot) {
             ++i;
-            std::swap(arr[i], arr[j]);
+            std::swap(arr[static_cast<std::size_t>(i)], arr[static_cast<std::size_t>(j)]);
         }
     }
-    std::swap(arr[i + 1], arr[high]);
+
+    std::swap(arr[static_cast<std::size_t>(i + 1)], arr[static_cast<std::size_t>(high)]);
     return i + 1;
 }
 
-static void parallel_quicksort_range(std::vector<int>& arr, int low, int high) {
-    if (low >= high) {
-        return;
-    }
-    std::vector<std::pair<int, int>> current{{low, high}};
-
-    std::vector<int> pivots;
-    std::vector<unsigned char> valid;
-    pivots.reserve(arr.size());
-    valid.reserve(arr.size());
-
-    while (!current.empty()) {
-        pivots.resize(current.size(), 0);
-        valid.resize(current.size(), static_cast<unsigned char>(0));
-
-        parallel_for_chunks(current.size(), [&](std::size_t begin, std::size_t end) {
-            for (std::size_t idx = begin; idx < end; ++idx) {
-                const auto& range = current[idx];
-                if (range.first < range.second) {
-                    pivots[idx] = qp_partition(arr, range.first, range.second);
-                    valid[idx] = 1;
-                }
-            }
-        });
-
-        std::vector<std::pair<int, int>> next_ranges;
-        next_ranges.reserve(current.size() * 2);
-
-        for (std::size_t idx = 0; idx < current.size(); ++idx) {
-            if (valid[idx] == 0) {
-                continue;
-            }
-            const int range_low = current[idx].first;
-            const int range_high = current[idx].second;
-            const int pivot_idx = pivots[idx];
-
-            if (range_low < pivot_idx - 1) {
-                next_ranges.emplace_back(range_low, pivot_idx - 1);
-            }
-            if (pivot_idx + 1 < range_high) {
-                next_ranges.emplace_back(pivot_idx + 1, range_high);
-            }
-        }
-
-        current.swap(next_ranges);
-    }
-}
+}  // namespace quick_parallel_detail
 
 void quicksort_parallel_entry(std::vector<int>& arr) {
     if (arr.size() < 2) {
         return;
     }
-    parallel_quicksort_range(arr, 0, static_cast<int>(arr.size()) - 1);
+
+    std::vector<std::pair<int, int>> segments{{0, static_cast<int>(arr.size()) - 1}};
+
+    while (!segments.empty()) {
+        const int segment_count = static_cast<int>(segments.size());
+        std::vector<std::pair<int, int>> left_children(static_cast<std::size_t>(segment_count));
+        std::vector<std::pair<int, int>> right_children(static_cast<std::size_t>(segment_count));
+        std::vector<char> has_left(static_cast<std::size_t>(segment_count), 0);
+        std::vector<char> has_right(static_cast<std::size_t>(segment_count), 0);
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+        for (int idx = 0; idx < segment_count; ++idx) {
+            const int low = segments[static_cast<std::size_t>(idx)].first;
+            const int high = segments[static_cast<std::size_t>(idx)].second;
+            if (low < high) {
+                const int pivot = quick_parallel_detail::partition(arr, low, high);
+                if (low < pivot - 1) {
+                    left_children[static_cast<std::size_t>(idx)] = {low, pivot - 1};
+                    has_left[static_cast<std::size_t>(idx)] = 1;
+                }
+                if (pivot + 1 < high) {
+                    right_children[static_cast<std::size_t>(idx)] = {pivot + 1, high};
+                    has_right[static_cast<std::size_t>(idx)] = 1;
+                }
+            }
+        }
+
+        std::vector<std::pair<int, int>> next_segments;
+        next_segments.reserve(segments.size() * 2);
+        for (int idx = 0; idx < segment_count; ++idx) {
+            if (has_left[static_cast<std::size_t>(idx)]) {
+                next_segments.push_back(left_children[static_cast<std::size_t>(idx)]);
+            }
+            if (has_right[static_cast<std::size_t>(idx)]) {
+                next_segments.push_back(right_children[static_cast<std::size_t>(idx)]);
+            }
+        }
+        segments.swap(next_segments);
+    }
 }

@@ -1,33 +1,46 @@
-function merge(left::Vector, right::Vector)
-    result = eltype(left)[]
-    i, j = 1, 1
-    while i <= length(left) && j <= length(right)
-        if left[i] <= right[j]
-            push!(result, left[i])
+function _merge!(arr::Vector, left::Int, mid::Int, right::Int)
+    left_part = arr[left:mid]
+    right_part = arr[(mid + 1):right]
+    i = 1
+    j = 1
+    k = left
+
+    while i <= length(left_part) && j <= length(right_part)
+        if left_part[i] <= right_part[j]
+            arr[k] = left_part[i]
             i += 1
         else
-            push!(result, right[j])
+            arr[k] = right_part[j]
             j += 1
         end
+        k += 1
     end
-    while i <= length(left)
-        push!(result, left[i])
+
+    while i <= length(left_part)
+        arr[k] = left_part[i]
         i += 1
+        k += 1
     end
-    while j <= length(right)
-        push!(result, right[j])
+
+    while j <= length(right_part)
+        arr[k] = right_part[j]
         j += 1
+        k += 1
     end
-    return result
+end
+
+function _mergesort!(arr::Vector, left::Int, right::Int)
+    if left < right
+        mid = left + div(right - left, 2)
+        _mergesort!(arr, left, mid)
+        _mergesort!(arr, mid + 1, right)
+        _merge!(arr, left, mid, right)
+    end
+    return arr
 end
 
 function mergesort(arr::Vector)
-    n = length(arr)
-    if n <= 1
-        return arr
-    end
-    mid = n ÷ 2
-    left = arr[1:mid]
-    right = arr[mid+1:n]
-    return merge(mergesort(left), mergesort(right))
+    work = copy(arr)
+    _mergesort!(work, 1, length(work))
+    return work
 end

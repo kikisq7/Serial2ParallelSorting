@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <condition_variable>
 #include <cstddef>
 #include <functional>
@@ -13,18 +12,16 @@
 #include <omp.h>
 #endif
 
-inline constexpr std::size_t SORTING_TARGET_TASKS_PER_WORKER = 2048;
-
 inline std::size_t sorting_thread_count(std::size_t task_count) {
     if (task_count == 0) {
         return 0;
     }
     const unsigned int hardware_threads = std::thread::hardware_concurrency();
     const std::size_t workers = hardware_threads == 0 ? 1U : static_cast<std::size_t>(hardware_threads);
-    const std::size_t chunk_limited_workers =
-        (task_count + SORTING_TARGET_TASKS_PER_WORKER - 1) / SORTING_TARGET_TASKS_PER_WORKER;
-    const std::size_t requested_workers = std::max<std::size_t>(task_count > 1 ? 2U : 1U, chunk_limited_workers);
-    return std::max<std::size_t>(1, std::min({workers, task_count, requested_workers}));
+    const std::size_t requested_workers = task_count > 1 ? 2U : 1U;
+    const std::size_t available_workers = workers < requested_workers ? requested_workers : workers;
+    const std::size_t bounded_workers = available_workers < task_count ? available_workers : task_count;
+    return bounded_workers < 1U ? 1U : bounded_workers;
 }
 
 inline std::vector<std::pair<std::size_t, std::size_t>> chunk_ranges(std::size_t task_count) {
